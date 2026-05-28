@@ -23,6 +23,14 @@ pub trait Bus {
     fn idle(&mut self, cycles: u32);
     /// True if an enabled+requested IRQ is pending (IE & IF & IME).
     fn irq_pending(&self) -> bool;
+    /// Extra cycles for the pipeline's "wasted" sequential prefetch that is
+    /// discarded on a taken branch. Returns 0 when the game-pak prefetch buffer
+    /// would have absorbed it (ROM code with WAITCNT prefetch enabled); else the
+    /// sequential fetch cost for that address. `width` is the opcode size.
+    fn branch_refetch_penalty(&self, addr: u32, width: u32) -> u32 {
+        let _ = (addr, width);
+        0
+    }
 }
 
 // CPU operating modes (CPSR[4:0]).
@@ -212,15 +220,19 @@ impl Cpu {
         self.pipe[0] = self.pipe[1];
         self.branched = false;
 
+        let pre_pc = self.r[15];
         if self.thumb() {
             // Deferred prefetch: fetch the next opcode AFTER execute, and skip it
-            // on a taken branch (flush did the refill). This matches the oracle's
-            // 2-fetch (N+S) branch timing better than the eager model.
+            // on a taken branch. The discarded fetch costs nothing only when the
+            // game-pak prefetch buffer absorbs it (see branch_refetch_penalty).
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
                 let pc = self.r[15] & !1;
                 self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
                 self.r[15] = pc.wrapping_add(2);
+            } else {
+                let p = bus.branch_refetch_penalty(pre_pc, 2);
+                if p > 0 { bus.idle(p); }
             }
         } else {
             arm::execute(self, bus, opcode);
@@ -228,6 +240,9 @@ impl Cpu {
                 let pc = self.r[15] & !3;
                 self.pipe[1] = bus.read32(pc, Access::Seq);
                 self.r[15] = pc.wrapping_add(4);
+            } else {
+                let p = bus.branch_refetch_penalty(pre_pc, 4);
+                if p > 0 { bus.idle(p); }
             }
         }
     }
