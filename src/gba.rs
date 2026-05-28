@@ -50,6 +50,13 @@ impl Gba {
             self.bus.apu.buffer.clear();
             self.audio_drained = false;
         }
+        // Safety net: if the host never drains audio, cap memory by dropping the
+        // oldest samples once the buffer grows very large (~16 MB).
+        if self.bus.apu.buffer.len() > 8_000_000 {
+            let keep = 4_000_000;
+            let start = self.bus.apu.buffer.len() - keep;
+            self.bus.apu.buffer.drain(0..start);
+        }
         self.bus.frame_complete = false;
         let mut guard: u64 = 0;
         let max_cycles: u64 = ppu::CYCLES_PER_LINE as u64 * ppu::TOTAL_LINES as u64 * 4;

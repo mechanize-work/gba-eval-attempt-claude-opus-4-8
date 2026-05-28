@@ -287,7 +287,7 @@ impl Apu {
         if !c.enabled { return; }
         c.timer -= cycles as i32;
         while c.timer <= 0 {
-            c.timer += ((2048 - c.freq as i32) * 4).max(1);
+            c.timer += ((2048 - c.freq as i32) * 16).max(1);
             c.phase = (c.phase + 1) & 7;
         }
     }
@@ -296,7 +296,7 @@ impl Apu {
         if !c.enabled { return; }
         c.timer -= cycles as i32;
         while c.timer <= 0 {
-            c.timer += ((2048 - c.freq as i32) * 4).max(1);
+            c.timer += ((2048 - c.freq as i32) * 16).max(1);
             c.phase = (c.phase + 1) & 7;
         }
     }
@@ -305,7 +305,7 @@ impl Apu {
         if !w.enabled || !w.dac_on { return; }
         w.timer -= cycles as i32;
         while w.timer <= 0 {
-            w.timer += ((2048 - w.freq as i32) * 2).max(1);
+            w.timer += ((2048 - w.freq as i32) * 8).max(1);
             w.pos = (w.pos + 1) % if w.bank_mode { 64 } else { 32 };
             let idx = if w.bank_mode { w.pos } else { w.bank * 32 + w.pos };
             let byte = w.ram[(idx / 2) & 31];

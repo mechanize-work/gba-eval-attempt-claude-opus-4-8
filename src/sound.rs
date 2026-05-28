@@ -77,15 +77,7 @@ impl SysBus {
             }
             0x064 => {
                 let c = &mut self.apu.ch1;
-                c.freq = (c.freq & 0x700) | (val & 0xFF);
-                c.length_enable = val & 0x4000 != 0;
-                if val & 0x8000 != 0 {
-                    Self::trigger_square1(&mut self.apu);
-                }
-            }
-            0x066 => {
-                let c = &mut self.apu.ch1;
-                c.freq = (c.freq & 0xFF) | ((val & 0x7) << 8);
+                c.freq = val & 0x7FF;
                 c.length_enable = val & 0x4000 != 0;
                 if val & 0x8000 != 0 {
                     Self::trigger_square1(&mut self.apu);
@@ -184,7 +176,7 @@ impl SysBus {
         if c.length_counter == 0 { c.length_counter = 64; }
         c.env_vol = c.env_initial;
         c.env_timer = c.env_period;
-        c.timer = ((2048 - c.freq as i32) * 4).max(1);
+        c.timer = ((2048 - c.freq as i32) * 16).max(1);
         // sweep init
         c.sweep_shadow = c.freq;
         c.sweep_timer = if c.sweep_period == 0 { 8 } else { c.sweep_period };
@@ -196,7 +188,7 @@ impl SysBus {
         if c.length_counter == 0 { c.length_counter = 64; }
         c.env_vol = c.env_initial;
         c.env_timer = c.env_period;
-        c.timer = ((2048 - c.freq as i32) * 4).max(1);
+        c.timer = ((2048 - c.freq as i32) * 16).max(1);
     }
     fn trigger_noise(a: &mut crate::apu::Apu) {
         let n = &mut a.noise;
