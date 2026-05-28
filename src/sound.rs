@@ -94,15 +94,7 @@ impl SysBus {
             }
             0x06C => {
                 let c = &mut self.apu.ch2;
-                c.freq = (c.freq & 0x700) | (val & 0xFF);
-                c.length_enable = val & 0x4000 != 0;
-                if val & 0x8000 != 0 {
-                    Self::trigger_square2(&mut self.apu);
-                }
-            }
-            0x06E => {
-                let c = &mut self.apu.ch2;
-                c.freq = (c.freq & 0xFF) | ((val & 0x7) << 8);
+                c.freq = val & 0x7FF;
                 c.length_enable = val & 0x4000 != 0;
                 if val & 0x8000 != 0 {
                     Self::trigger_square2(&mut self.apu);
@@ -123,17 +115,7 @@ impl SysBus {
             }
             0x074 => {
                 let w = &mut self.apu.wave;
-                w.freq = (w.freq & 0x700) | (val & 0xFF);
-                w.length_enable = val & 0x4000 != 0;
-                if val & 0x8000 != 0 && w.dac_on {
-                    w.enabled = true;
-                    w.pos = 0;
-                    if w.length_counter == 0 { w.length_counter = 256; }
-                }
-            }
-            0x076 => {
-                let w = &mut self.apu.wave;
-                w.freq = (w.freq & 0xFF) | ((val & 0x7) << 8);
+                w.freq = val & 0x7FF;
                 w.length_enable = val & 0x4000 != 0;
                 if val & 0x8000 != 0 && w.dac_on {
                     w.enabled = true;

@@ -169,6 +169,12 @@ impl Apu {
         self.buffer.clear();
     }
 
+    /// Bank accessible via the wave RAM registers (0x90-0x9F): the bank NOT
+    /// currently being played (single-bank mode); the selected bank in dual mode.
+    pub fn wave_access_bank(&self) -> usize {
+        if self.wave.bank_mode { self.wave.bank } else { 1 - self.wave.bank }
+    }
+
     /// Output sample rate in Hz, determined by SOUNDBIAS bits 14-15.
     pub fn sample_rate(&self) -> u32 {
         32768 << ((self.soundbias >> 14) & 3)
@@ -332,20 +338,25 @@ impl Apu {
     }
 
     fn generate_sample(&mut self) {
-        // PSG outputs (0..15 each), summed.
+        // PSG channels output a bipolar value (DAC: digital 0..15 maps to a
+        // signal centred at 0). Square/noise: ±env_vol; wave: (sample-8) scaled.
         let ch1 = if self.ch1.enabled {
-            DUTY[self.ch1.duty as usize][self.ch1.phase as usize] as i32 * self.ch1.env_vol as i32
+            (2 * DUTY[self.ch1.duty as usize][self.ch1.phase as usize] as i32 - 1) * self.ch1.env_vol as i32
         } else { 0 };
         let ch2 = if self.ch2.enabled {
-            DUTY[self.ch2.duty as usize][self.ch2.phase as usize] as i32 * self.ch2.env_vol as i32
+            (2 * DUTY[self.ch2.duty as usize][self.ch2.phase as usize] as i32 - 1) * self.ch2.env_vol as i32
         } else { 0 };
         let wave = if self.wave.enabled && self.wave.dac_on {
-            let vol_shift = match self.wave.volume { 0 => 4, 1 => 0, 2 => 1, 3 => 2, _ => 4 };
-            let s = if self.wave.force_vol { (self.wave.sample as i32 * 3) / 4 } else { self.wave.sample as i32 >> vol_shift };
-            s
+            let centered = self.wave.sample as i32 - 8; // -8..7
+            let v = if self.wave.force_vol {
+                (centered * 3) / 4
+            } else {
+                match self.wave.volume { 1 => centered, 2 => centered / 2, 3 => centered / 4, _ => 0 }
+            };
+            v * 2
         } else { 0 };
         let noise = if self.noise.enabled {
-            self.noise.sample as i32 * self.noise.env_vol as i32
+            (2 * self.noise.sample as i32 - 1) * self.noise.env_vol as i32
         } else { 0 };
 
         // PSG mixing: channel enable per L/R from soundcnt_l.
@@ -364,7 +375,7 @@ impl Apu {
         psg_r = psg_r * (psg_vol_r + 1);
 
         // PSG sound volume from soundcnt_h bits 0-1: 0=25%,1=50%,2=100%.
-        let psg_shift = match self.soundcnt_h & 0x3 { 0 => 3, 1 => 2, _ => 1 };
+        let psg_shift = match self.soundcnt_h & 0x3 { 0 => 2, 1 => 1, _ => 0 };
         psg_l >>= psg_shift;
         psg_r >>= psg_shift;
 
@@ -377,8 +388,8 @@ impl Apu {
         let a_scaled = if a_vol == 1 { a } else { a >> 1 };
         let b_scaled = if b_vol == 1 { b } else { b >> 1 };
 
-        let mut l = psg_l * 2;
-        let mut r = psg_r * 2;
+        let mut l = psg_l;
+        let mut r = psg_r;
         if h & 0x200 != 0 { l += a_scaled * 4; }  // A left
         if h & 0x100 != 0 { r += a_scaled * 4; }  // A right
         if h & 0x2000 != 0 { l += b_scaled * 4; } // B left

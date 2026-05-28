@@ -40,7 +40,8 @@ impl SysBus {
             0x088 => self.apu.soundbias,
             0x090..=0x09F => {
                 let i = (reg - 0x090) as usize;
-                u16::from_le_bytes([self.apu.wave.ram[i * 2], self.apu.wave.ram[i * 2 + 1]])
+                let b = self.apu.wave_access_bank() * 16;
+                u16::from_le_bytes([self.apu.wave.ram[b + i], self.apu.wave.ram[b + i + 1]])
             }
             // DMA control (only CNT_H readable)
             0x0BA => self.dma.ch[0].control,
@@ -155,9 +156,10 @@ impl SysBus {
             0x088 => self.apu.soundbias = val,
             0x090..=0x09F => {
                 let i = (reg - 0x090) as usize;
+                let b = self.apu.wave_access_bank() * 16;
                 let [lo, hi] = val.to_le_bytes();
-                self.apu.wave.ram[i * 2] = lo;
-                self.apu.wave.ram[i * 2 + 1] = hi;
+                self.apu.wave.ram[b + i] = lo;
+                self.apu.wave.ram[b + i + 1] = hi;
             }
             0x0A0 | 0x0A2 => {
                 let [lo, hi] = val.to_le_bytes();
