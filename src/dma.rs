@@ -18,10 +18,10 @@ impl DmaChannel {
         self.control & 0x8000 != 0
     }
     pub fn dst_adjust(&self) -> u32 {
-        (self.control >> 5) & 0x3
+        ((self.control >> 5) & 0x3) as u32
     }
     pub fn src_adjust(&self) -> u32 {
-        (self.control >> 7) & 0x3
+        ((self.control >> 7) & 0x3) as u32
     }
     pub fn repeat(&self) -> bool {
         self.control & 0x0200 != 0
@@ -30,7 +30,7 @@ impl DmaChannel {
         self.control & 0x0400 != 0 // true => 32-bit
     }
     pub fn timing(&self) -> u32 {
-        (self.control >> 12) & 0x3
+        ((self.control >> 12) & 0x3) as u32
     }
     pub fn irq(&self) -> bool {
         self.control & 0x4000 != 0

@@ -5,8 +5,10 @@ mod bus;
 mod cpu;
 mod dma;
 mod gba;
+mod io;
 mod ppu;
 mod apu;
+mod sound;
 mod timer;
 mod sched;
 
@@ -98,4 +100,41 @@ pub extern "C" fn emu_audio_samples() -> i32 {
 #[no_mangle]
 pub extern "C" fn emu_audio_rate() -> i32 {
     emu().audio_rate()
+}
+
+/// Debug: returns a pointer to a small array of key PPU/CPU registers.
+/// [dispcnt, dispstat, vcount, bg0cnt..bg3cnt, bg0hofs, mode-detect...]
+pub fn debug_state() -> [u32; 16] {
+    let g = emu();
+    let p = &g.bus.ppu;
+    [
+        p.dispcnt as u32,
+        p.dispstat as u32,
+        p.vcount as u32,
+        p.bgcnt[0] as u32,
+        p.bgcnt[1] as u32,
+        p.bgcnt[2] as u32,
+        p.bgcnt[3] as u32,
+        p.bghofs[0] as u32,
+        p.bgvofs[0] as u32,
+        g.cpu.r[15],
+        g.cpu.cpsr,
+        g.bus.ie as u32,
+        g.bus.if_ as u32,
+        g.bus.ime as u32,
+        p.bldcnt as u32,
+        g.bus.waitcnt as u32,
+    ]
+}
+
+pub fn debug_cycles() -> u64 {
+    emu().bus.sched.now
+}
+
+pub fn debug_insns() -> u64 {
+    emu().insn_count
+}
+
+pub fn debug_regs() -> [u32; 16] {
+    emu().cpu.r
 }
