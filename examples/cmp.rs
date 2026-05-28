@@ -38,6 +38,9 @@ fn main() {
     }
     gba_emu::emu_load_rom(rom.len() as i32);
 
+    if let Ok(m) = std::env::var("LAYERMASK") {
+        gba_emu::debug_set_layer_mask(u32::from_str_radix(m.trim_start_matches("0x"), 16).unwrap());
+    }
     let mut keys = 0u32;
     let mut total_audio = 0usize;
     let mut audio_out: Vec<i16> = Vec::new();
@@ -71,6 +74,10 @@ fn main() {
             eprintln!("PPU dispcnt={:04x} bldcnt={:04x} bldalpha={:04x} bldy={:04x} winin={:04x} winout={:04x} winh0={:04x} winv0={:04x} bg0c={:04x} bg1c={:04x} bg2c={:04x} bg3c={:04x}",q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],q[8],q[9],q[10],q[11]);
             let r=gba_emu::debug_ppu2();
             eprintln!("    hofs0={} vofs0={} hofs1={} vofs1={} hofs2={} vofs2={} hofs3={} vofs3={} mosaic={:04x} winh1={:04x} winv1={:04x}",r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8],r[9],r[10]);
+        }
+        if std::env::var("TMR").is_ok() && f%30==0 {
+            let s=gba_emu::debug_state();
+            eprintln!("f{} ie={:04x} if={:04x} ime={}", f, s[11], s[12], s[13]);
         }
         if std::env::var("SND").is_ok() && (f%40==0 || f+1==frames) {
             let a=gba_emu::debug_apu();

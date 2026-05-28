@@ -4,6 +4,7 @@ use crate::apu::Apu;
 use crate::cpu::{Access, Bus};
 use crate::dma::Dma;
 use crate::ppu::{self, Ppu};
+use crate::save::{Save, SaveType};
 use crate::sched::Sched;
 use crate::timer::Timers;
 
@@ -20,7 +21,8 @@ pub struct SysBus {
     pub ewram: Box<[u8]>,  // 256 KiB
     pub iwram: Box<[u8]>,  // 32 KiB
     pub rom: Vec<u8>,
-    pub sram: Box<[u8]>,   // 64 KiB save
+    pub save: Save,
+    pub eeprom_addr_bits: u32,
 
     pub ppu: Ppu,
     pub apu: Apu,
@@ -80,7 +82,8 @@ impl SysBus {
             ewram: vec![0u8; 256 * 1024].into_boxed_slice(),
             iwram: vec![0u8; 32 * 1024].into_boxed_slice(),
             rom: Vec::new(),
-            sram: vec![0u8; 64 * 1024].into_boxed_slice(),
+            save: Save::new(SaveType::Sram),
+            eeprom_addr_bits: 14,
             ppu: Ppu::new(),
             apu: Apu::new(),
             timers: Timers::new(),
@@ -123,6 +126,12 @@ impl SysBus {
 
     pub fn load_rom(&mut self, data: &[u8]) {
         self.rom = data.to_vec();
+        let ty = crate::save::detect(data);
+        self.save = Save::new(ty);
+        self.eeprom_addr_bits = match ty {
+            SaveType::Eeprom512 => 6,
+            _ => 14,
+        };
     }
 
     pub fn reset(&mut self) {
@@ -289,24 +298,25 @@ impl SysBus {
 
     // --- Timer stepping ---------------------------------------------------
     fn step_timers(&mut self, cycles: u32) {
-        let mut overflow_prev = false;
+        let mut prev_overflows = 0u32;
         for i in 0..4 {
             let mut overflows = 0u32;
             let irq;
             {
                 let t = &mut self.timers.t[i];
                 if !t.enabled() {
-                    overflow_prev = false;
+                    prev_overflows = 0;
                     continue;
                 }
                 if t.cascade() && i > 0 {
-                    if overflow_prev {
-                        let (nv, of) = t.counter.overflowing_add(1);
-                        t.counter = nv;
-                        if of {
-                            overflows = 1;
-                            t.counter = t.reload;
+                    // Tick once per overflow of the previous timer.
+                    if prev_overflows > 0 {
+                        let mut c = t.counter as u32 + prev_overflows;
+                        while c > 0xFFFF {
+                            overflows += 1;
+                            c -= 0x10000 - t.reload as u32;
                         }
+                        t.counter = c as u16;
                     }
                 } else {
                     let shift = t.prescaler_shift();
@@ -324,12 +334,14 @@ impl SysBus {
                 }
                 irq = t.irq();
             }
-            overflow_prev = overflows > 0;
+            prev_overflows = overflows;
             if overflows > 0 {
                 if irq {
                     self.if_ |= IRQ_TIMER0 << i;
                 }
-                self.on_timer_overflow(i);
+                for _ in 0..overflows {
+                    self.on_timer_overflow(i);
+                }
             }
         }
     }
@@ -402,11 +414,12 @@ impl SysBus {
             0x5 => self.ppu.palette[(addr as usize) & 0x3FF],
             0x6 => self.ppu.vram[Self::vram_index(addr)],
             0x7 => self.ppu.oam[(addr as usize) & 0x3FF],
+            0xD if self.save.is_eeprom() => self.save.eeprom_read_bit(),
             0x8..=0xD => {
                 let off = (addr & 0x01FF_FFFF) as usize;
                 if off < self.rom.len() { self.rom[off] } else { (addr >> 1) as u8 }
             }
-            0xE | 0xF => self.sram[(addr as usize) & 0xFFFF],
+            0xE | 0xF => self.save.read8(addr),
             _ => (self.open_bus >> ((addr & 3) * 8)) as u8,
         }
     }
@@ -443,6 +456,7 @@ impl SysBus {
                 let i = (addr as usize) & 0x3FF;
                 u16::from_le_bytes([self.ppu.oam[i], self.ppu.oam[i + 1]])
             }
+            0xD if self.save.is_eeprom() => self.save.eeprom_read_bit() as u16,
             0x8..=0xD => {
                 let off = (addr & 0x01FF_FFFF) as usize;
                 if off + 1 < self.rom.len() {
@@ -452,7 +466,7 @@ impl SysBus {
                 }
             }
             0xE | 0xF => {
-                let b = self.sram[(addr as usize) & 0xFFFF];
+                let b = self.save.read8(addr);
                 u16::from_le_bytes([b, b])
             }
             _ => (self.open_bus >> ((addr & 2) * 8)) as u16,
@@ -487,7 +501,11 @@ impl SysBus {
                 }
             }
             0x7 => { /* OAM ignores byte writes */ }
-            0xE | 0xF => self.sram[(addr as usize) & 0xFFFF] = val,
+            0xD if self.save.is_eeprom() => {
+                let bits = self.eeprom_addr_bits;
+                self.save.eeprom_write_bit(val & 1, bits);
+            }
+            0xE | 0xF => self.save.write8(addr, val),
             _ => {}
         }
     }
@@ -523,9 +541,13 @@ impl SysBus {
                 self.ppu.oam[i] = lo;
                 self.ppu.oam[i + 1] = hi;
             }
+            0xD if self.save.is_eeprom() => {
+                let bits = self.eeprom_addr_bits;
+                self.save.eeprom_write_bit((val & 1) as u8, bits);
+            }
             0xE | 0xF => {
                 let b = (val.rotate_right(((addr & 1) * 8) as u32)) as u8;
-                self.sram[(addr as usize) & 0xFFFF] = b;
+                self.save.write8(addr, b);
             }
             _ => {}
         }

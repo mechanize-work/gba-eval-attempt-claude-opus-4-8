@@ -197,8 +197,9 @@ fn alu_ops<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
         } // CMN
         0xC => a | b,                                   // ORR
         0xD => {
-            // MUL
-            bus.idle(1);
+            // MUL: m internal cycles based on Rd (the multiplier operand here is `a`).
+            let m = super::arm::mul_m_cycles(a, true);
+            bus.idle(m);
             a.wrapping_mul(b)
         }
         0xE => a & !b,                                  // BIC

@@ -8,6 +8,7 @@ mod gba;
 mod io;
 mod ppu;
 mod apu;
+mod save;
 mod sound;
 mod timer;
 mod sched;
@@ -146,6 +147,10 @@ pub fn debug_ppu() -> [u32; 12] {
         p.winin as u32, p.winout as u32, p.winh[0] as u32, p.winv[0] as u32,
         p.bgcnt[0] as u32, p.bgcnt[1] as u32, p.bgcnt[2] as u32, p.bgcnt[3] as u32,
     ]
+}
+
+pub fn debug_set_layer_mask(m: u32) {
+    emu().bus.ppu.debug_layer_mask = m;
 }
 
 pub fn debug_apu() -> [u32; 8] {

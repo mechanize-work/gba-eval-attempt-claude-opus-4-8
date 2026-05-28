@@ -45,6 +45,7 @@ pub struct Ppu {
     // State
     pub dot: u32,         // cycles into current scanline
     pub frame: Box<[u32]>, // 240*160 output
+    pub debug_layer_mask: u32, // bit per layer: 0-3 bg, 4 obj (debug only); 0xFF=all
 
     // Per-line scratch buffers.
     line_bg: [[u16; SCREEN_W]; 4], // color index per bg (with palette resolved to 15-bit | flags)
@@ -90,6 +91,7 @@ impl Ppu {
             bldy: 0,
             dot: 0,
             frame: vec![0xFF00_0000u32; SCREEN_W * SCREEN_H].into_boxed_slice(),
+            debug_layer_mask: 0xFF,
             line_bg: [[0; SCREEN_W]; 4],
             bg_drawn: [[false; SCREEN_W]; 4],
             obj_color: [0; SCREEN_W],
@@ -568,6 +570,7 @@ impl Ppu {
             } else {
                 enable_mask = 0x3F;
             }
+            let enable_mask = enable_mask & (self.debug_layer_mask as u8 | 0xE0);
 
             // Find top two layers by priority.
             // Layers: bg0..3 with their priority; obj.
