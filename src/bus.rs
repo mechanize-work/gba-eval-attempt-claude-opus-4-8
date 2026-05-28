@@ -182,11 +182,6 @@ impl SysBus {
             // 32-bit ROM access = two 16-bit accesses (N then S).
             self.ws_n32[r] = n + s;
             self.ws_s32[r] = s + s;
-            // EXPERIMENT: simulate game-pak prefetch (cheap sequential ROM).
-            if (0x8..=0xD).contains(&r) {
-                self.ws_s[r] = 1;
-                self.ws_s32[r] = 2;
-            }
         }
     }
 

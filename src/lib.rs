@@ -138,3 +138,12 @@ pub fn debug_insns() -> u64 {
 pub fn debug_regs() -> [u32; 16] {
     emu().cpu.r
 }
+
+pub fn debug_ppu() -> [u32; 12] {
+    let p = &emu().bus.ppu;
+    [
+        p.dispcnt as u32, p.bldcnt as u32, p.bldalpha as u32, p.bldy as u32,
+        p.winin as u32, p.winout as u32, p.winh[0] as u32, p.winv[0] as u32,
+        p.bgcnt[0] as u32, p.bgcnt[1] as u32, p.bgcnt[2] as u32, p.bgcnt[3] as u32,
+    ]
+}

@@ -56,7 +56,10 @@ impl SysBus {
             0x10A => self.timers.t[2].control,
             0x10C => self.timers.t[3].counter,
             0x10E => self.timers.t[3].control,
-            0x130 => self.keyinput,
+            0x130 => {
+                #[cfg(feature = "trace")] eprintln!("KEYINPUT read -> {:04x} @cyc {}", self.keyinput, self.sched.now);
+                self.keyinput
+            }
             0x132 => self.keycnt,
             0x200 => self.ie,
             0x202 => self.if_,
