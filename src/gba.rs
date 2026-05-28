@@ -91,7 +91,12 @@ impl Gba {
                 self.bus.halted = false;
                 break;
             }
-            if self.bus.dma_pending != 0 {
+            // A pending DMA (incl. sound FIFO refill) must be serviced by the
+            // main loop, so stop halting and let it run.
+            if self.bus.dma_pending != 0
+                || self.bus.fifo_a_request
+                || self.bus.fifo_b_request
+            {
                 break;
             }
             self.bus.idle(8);
@@ -222,6 +227,6 @@ impl Gba {
     }
 
     pub fn audio_rate(&self) -> i32 {
-        crate::apu::SAMPLE_RATE as i32
+        self.bus.apu.sample_rate() as i32
     }
 }

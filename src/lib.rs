@@ -24,7 +24,10 @@ static mut ROM_BUF: Option<Box<[u8]>> = None;
 fn emu() -> &'static mut Gba {
     unsafe {
         let e = core::ptr::addr_of_mut!(EMU);
-        (*e).as_mut().expect("emu not initialized")
+        if (*e).is_none() {
+            *e = Some(Box::new(Gba::new()));
+        }
+        (*e).as_mut().unwrap()
     }
 }
 

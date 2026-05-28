@@ -169,6 +169,15 @@ impl Apu {
         self.buffer.clear();
     }
 
+    /// Output sample rate in Hz, determined by SOUNDBIAS bits 14-15.
+    pub fn sample_rate(&self) -> u32 {
+        32768 << ((self.soundbias >> 14) & 3)
+    }
+
+    fn cycles_per_sample(&self) -> u32 {
+        512 >> ((self.soundbias >> 14) & 3)
+    }
+
     /// Advance audio by `cycles` system clocks, generating samples.
     pub fn step(&mut self, cycles: u32) {
         // Frame sequencer at 512 Hz => every 32768 cycles.
@@ -184,10 +193,11 @@ impl Apu {
         self.tick_wave_timer(cycles);
         self.tick_noise_timer(cycles);
 
-        // Output sampling.
+        // Output sampling (rate follows SOUNDBIAS).
+        let cps = self.cycles_per_sample() as i32;
         self.sample_timer -= cycles as i32;
         while self.sample_timer <= 0 {
-            self.sample_timer += CYCLES_PER_SAMPLE as i32;
+            self.sample_timer += cps;
             self.generate_sample();
         }
     }
