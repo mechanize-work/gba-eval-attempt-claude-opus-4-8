@@ -260,6 +260,7 @@ impl SysBus {
             t.prescaler_cycles = 0;
         }
         t.control = val;
+        self.timers.refresh_active();
     }
 
 }

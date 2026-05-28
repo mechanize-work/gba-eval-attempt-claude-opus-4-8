@@ -32,10 +32,14 @@ impl Timer {
 #[derive(Clone)]
 pub struct Timers {
     pub t: [Timer; 4],
+    pub any_enabled: bool,
 }
 
 impl Timers {
     pub fn new() -> Self {
-        Timers { t: [Timer::default(); 4] }
+        Timers { t: [Timer::default(); 4], any_enabled: false }
+    }
+    pub fn refresh_active(&mut self) {
+        self.any_enabled = self.t.iter().any(|t| t.enabled());
     }
 }

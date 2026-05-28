@@ -156,6 +156,16 @@ impl Gba {
 
         let count = if is_fifo { 4 } else { c.cur_count };
 
+        // EEPROM size auto-detect: a DMA to the EEPROM region reveals the address
+        // width by its transfer length (read cmd = 2+addr+1; write = 2+addr+64+1).
+        if self.bus.save.is_eeprom() && (c.cur_dst >> 24) & 0xF == 0xD {
+            self.bus.eeprom_addr_bits = match count {
+                9 | 73 => 6,
+                17 | 81 => 14,
+                _ => self.bus.eeprom_addr_bits,
+            };
+        }
+
         let mut src = self.bus.dma.ch[ch].cur_src;
         let mut dst = self.bus.dma.ch[ch].cur_dst;
 

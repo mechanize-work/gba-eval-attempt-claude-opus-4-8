@@ -211,24 +211,22 @@ impl Cpu {
         let opcode = self.pipe[0];
         self.pipe[0] = self.pipe[1];
         self.branched = false;
-        self.fetch_nonseq = false;
 
         if self.thumb() {
+            // Deferred prefetch: fetch the next opcode AFTER execute, and skip it
+            // on a taken branch (flush did the refill). This matches the oracle's
+            // 2-fetch (N+S) branch timing better than the eager model.
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
-                // Deferred prefetch (skipped on branch, which flushed). A preceding
-                // store makes this fetch non-sequential.
-                let acc = if self.fetch_nonseq { Access::NonSeq } else { Access::Seq };
                 let pc = self.r[15] & !1;
-                self.pipe[1] = bus.read16(pc, acc) as u32;
+                self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
                 self.r[15] = pc.wrapping_add(2);
             }
         } else {
             arm::execute(self, bus, opcode);
             if !self.branched {
-                let acc = if self.fetch_nonseq { Access::NonSeq } else { Access::Seq };
                 let pc = self.r[15] & !3;
-                self.pipe[1] = bus.read32(pc, acc);
+                self.pipe[1] = bus.read32(pc, Access::Seq);
                 self.r[15] = pc.wrapping_add(4);
             }
         }

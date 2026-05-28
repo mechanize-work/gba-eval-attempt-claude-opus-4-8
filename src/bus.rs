@@ -228,7 +228,9 @@ impl SysBus {
     fn tick(&mut self, cycles: u32) {
         self.sched.add(cycles);
         self.step_ppu(cycles);
-        self.step_timers(cycles);
+        if self.timers.any_enabled {
+            self.step_timers(cycles);
+        }
         self.apu.step(cycles);
     }
 
