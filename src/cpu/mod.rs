@@ -220,29 +220,22 @@ impl Cpu {
         self.pipe[0] = self.pipe[1];
         self.branched = false;
 
-        let pre_pc = self.r[15];
         if self.thumb() {
-            // Deferred prefetch: fetch the next opcode AFTER execute, and skip it
-            // on a taken branch. The discarded fetch costs nothing only when the
-            // game-pak prefetch buffer absorbs it (see branch_refetch_penalty).
+            // Thumb: deferred prefetch (matches oracle's 2-fetch branch timing).
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
                 let pc = self.r[15] & !1;
                 self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
                 self.r[15] = pc.wrapping_add(2);
-            } else {
-                let p = bus.branch_refetch_penalty(pre_pc, 2);
-                if p > 0 { bus.idle(p); }
             }
         } else {
+            // ARM: eager prefetch — the discarded 32-bit prefetch on a taken
+            // branch is charged (matches oracle on ARM-from-ROM tight loops).
+            let pc = self.r[15] & !3;
+            self.pipe[1] = bus.read32(pc, Access::Seq);
             arm::execute(self, bus, opcode);
             if !self.branched {
-                let pc = self.r[15] & !3;
-                self.pipe[1] = bus.read32(pc, Access::Seq);
                 self.r[15] = pc.wrapping_add(4);
-            } else {
-                let p = bus.branch_refetch_penalty(pre_pc, 4);
-                if p > 0 { bus.idle(p); }
             }
         }
     }

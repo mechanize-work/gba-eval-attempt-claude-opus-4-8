@@ -161,9 +161,10 @@ impl SysBus {
         // Bits 24-27 of memctrl: WRAM 256K waitstate = 15 - value.
         let v = (self.memctrl >> 24) & 0xF;
         let waits = if v >= 15 { 15 } else { 15 - v };
-        // 16-bit access = 1 + waits; 32-bit = 2x (16-bit bus).
         self.ewram_c16 = 1 + waits;
-        self.ewram_c32 = 2 * (1 + waits);
+        // EXPERIMENT: oracle charges EWRAM 32-bit at the single-access cost, not
+        // doubled — calibrate against the STM test.
+        self.ewram_c32 = 1 + waits;
         // If EWRAM disabled (bit0) we leave timings; edge case ignored.
     }
 
@@ -201,7 +202,13 @@ impl SysBus {
         match region {
             0x0 | 0x3 | 0x4 | 0x7 => 1, // BIOS, IWRAM, IO, OAM
             0x2 => {
-                if width == 4 { self.ewram_c32 } else { self.ewram_c16 }
+                // EWRAM: sequential accesses (e.g. within LDM/STM bursts) are
+                // cheaper, matching the oracle's block-transfer timing.
+                let base = if width == 4 { self.ewram_c32 } else { self.ewram_c16 };
+                match access {
+                    Access::Seq if base > 2 => base - 1,
+                    _ => base,
+                }
             }
             0x5 | 0x6 => {
                 // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles.
