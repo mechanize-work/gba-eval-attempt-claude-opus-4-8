@@ -66,6 +66,9 @@ pub struct SysBus {
 
     // IRQ line caching.
     pub irq_line: bool,
+
+    // Automatic sequential-access detection: expected next sequential address.
+    seq_addr: u32,
 }
 
 const REGION_TIMINGS_NSEQ: [u32; 4] = [4, 3, 2, 8];
@@ -107,6 +110,7 @@ impl SysBus {
             ws_s32: [1; 16],
             sram_wait: 5,
             irq_line: false,
+            seq_addr: 0xFFFF_FFFF,
         };
         b.update_waitstates();
         b
@@ -534,45 +538,67 @@ impl SysBus {
     }
 }
 
+impl SysBus {
+    /// Determine seq/nonseq automatically from the access address, then update
+    /// the expected next sequential address. This models the ARM7 bus: a fetch
+    /// or data access that continues from the previous address is sequential;
+    /// any jump (branch target, post-data opcode fetch, etc.) is non-sequential.
+    #[inline]
+    fn auto_access(&mut self, addr: u32, width: u32) -> Access {
+        let a = if width == 4 { addr & !3 } else if width == 2 { addr & !1 } else { addr };
+        let acc = if a == self.seq_addr { Access::Seq } else { Access::NonSeq };
+        self.seq_addr = a.wrapping_add(width);
+        acc
+    }
+}
+
 // Bus trait impl: timed accesses.
 impl Bus for SysBus {
-    fn read8(&mut self, addr: u32, access: Access) -> u8 {
+    fn read8(&mut self, addr: u32, _access: Access) -> u8 {
+        let access = self.auto_access(addr, 1);
         let c = self.access_cycles(addr, 1, access);
         self.tick(c);
         let v = self.read8_raw(addr);
         self.open_bus = (self.open_bus & !0xFF) | v as u32;
         v
     }
-    fn read16(&mut self, addr: u32, access: Access) -> u16 {
+    fn read16(&mut self, addr: u32, _access: Access) -> u16 {
+        let access = self.auto_access(addr, 2);
         let c = self.access_cycles(addr, 2, access);
         self.tick(c);
         let v = self.read16_raw(addr);
         self.open_bus = v as u32 | ((v as u32) << 16);
         v
     }
-    fn read32(&mut self, addr: u32, access: Access) -> u32 {
+    fn read32(&mut self, addr: u32, _access: Access) -> u32 {
+        let access = self.auto_access(addr, 4);
         let c = self.access_cycles(addr, 4, access);
         self.tick(c);
         let v = self.read32_raw(addr);
         self.open_bus = v;
         v
     }
-    fn write8(&mut self, addr: u32, val: u8, access: Access) {
+    fn write8(&mut self, addr: u32, val: u8, _access: Access) {
+        let access = self.auto_access(addr, 1);
         let c = self.access_cycles(addr, 1, access);
         self.tick(c);
         self.write8_raw(addr, val);
     }
-    fn write16(&mut self, addr: u32, val: u16, access: Access) {
+    fn write16(&mut self, addr: u32, val: u16, _access: Access) {
+        let access = self.auto_access(addr, 2);
         let c = self.access_cycles(addr, 2, access);
         self.tick(c);
         self.write16_raw(addr, val);
     }
-    fn write32(&mut self, addr: u32, val: u32, access: Access) {
+    fn write32(&mut self, addr: u32, val: u32, _access: Access) {
+        let access = self.auto_access(addr, 4);
         let c = self.access_cycles(addr, 4, access);
         self.tick(c);
         self.write32_raw(addr, val);
     }
     fn idle(&mut self, cycles: u32) {
+        // Internal cycles break bus sequentiality.
+        self.seq_addr = 0xFFFF_FFFF;
         self.tick(cycles);
     }
     fn irq_pending(&self) -> bool {
