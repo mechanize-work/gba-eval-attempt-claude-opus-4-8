@@ -209,17 +209,19 @@ impl Cpu {
         self.branched = false;
 
         if self.thumb() {
-            // Fetch the next-next instruction; r[15] currently = A+4.
-            self.pipe[1] = bus.read16(self.r[15] & !1, Access::Seq) as u32;
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
-                self.r[15] = self.r[15].wrapping_add(2);
+                // Deferred sequential prefetch (skipped on branch, which flushed).
+                let pc = self.r[15] & !1;
+                self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
+                self.r[15] = pc.wrapping_add(2);
             }
         } else {
-            self.pipe[1] = bus.read32(self.r[15] & !3, Access::Seq);
             arm::execute(self, bus, opcode);
             if !self.branched {
-                self.r[15] = self.r[15].wrapping_add(4);
+                let pc = self.r[15] & !3;
+                self.pipe[1] = bus.read32(pc, Access::Seq);
+                self.r[15] = pc.wrapping_add(4);
             }
         }
     }

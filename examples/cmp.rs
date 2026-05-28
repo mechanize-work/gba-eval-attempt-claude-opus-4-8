@@ -52,7 +52,7 @@ fn main() {
         total_audio += n as usize;
 
         // Dump only the final frame and a few checkpoints to save space.
-        if f + 1 == frames || frames <= 10 || f % 60 == 0 {
+        if std::env::var("ALLF").is_ok() || f + 1 == frames || frames <= 10 || f % 60 == 0 {
             let fb = gba_emu::emu_framebuffer();
             let path = format!("{}/frame_{:05}.ppm", outdir, f);
             dump_ppm(&path, fb);

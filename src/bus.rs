@@ -37,6 +37,9 @@ pub struct SysBus {
     pub keycnt: u16,
 
     pub waitcnt: u16,
+    pub memctrl: u32,
+    pub ewram_c16: u32,
+    pub ewram_c32: u32,
     pub postflg: u8,
     pub haltcnt: u8,
     pub halted: bool,
@@ -86,6 +89,9 @@ impl SysBus {
             keyinput: 0x03FF,
             keycnt: 0,
             waitcnt: 0,
+            memctrl: 0x0D00_0020,
+            ewram_c16: 3,
+            ewram_c32: 6,
             postflg: 0,
             haltcnt: 0,
             halted: false,
@@ -129,6 +135,7 @@ impl SysBus {
         self.keyinput = 0x03FF;
         self.keycnt = 0;
         self.waitcnt = 0;
+        self.memctrl = 0x0D00_0020;
         self.postflg = 0;
         self.haltcnt = 0;
         self.halted = false;
@@ -138,18 +145,29 @@ impl SysBus {
         self.fifo_a_request = false;
         self.fifo_b_request = false;
         self.update_waitstates();
+        self.update_ewram_wait();
+    }
+
+    pub(crate) fn update_ewram_wait(&mut self) {
+        // Bits 24-27 of memctrl: WRAM 256K waitstate = 15 - value.
+        let v = (self.memctrl >> 24) & 0xF;
+        let waits = if v >= 15 { 15 } else { 15 - v };
+        // 16-bit access = 1 + waits; 32-bit = 2x (16-bit bus).
+        self.ewram_c16 = 1 + waits;
+        self.ewram_c32 = 2 * (1 + waits);
+        // If EWRAM disabled (bit0) we leave timings; edge case ignored.
     }
 
     pub(crate) fn update_waitstates(&mut self) {
         let w = self.waitcnt;
         self.sram_wait = 1 + REGION_TIMINGS_NSEQ[(w & 0x3) as usize];
-        // WS0 (region 0x8/0x9)
-        let ws0_n = 1 + REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
-        let ws0_s = if (w >> 4) & 1 == 1 { 2 } else { 3 };
-        let ws1_n = 1 + REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
-        let ws1_s = if (w >> 7) & 1 == 1 { 2 } else { 5 };
-        let ws2_n = 1 + REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
-        let ws2_s = if (w >> 10) & 1 == 1 { 2 } else { 9 };
+        // GBATEK lists these as total cycle counts. N: {4,3,2,8}; S per region.
+        let ws0_n = REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
+        let ws0_s = if (w >> 4) & 1 == 1 { 1 } else { 2 };
+        let ws1_n = REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
+        let ws1_s = if (w >> 7) & 1 == 1 { 1 } else { 4 };
+        let ws2_n = REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
+        let ws2_s = if (w >> 10) & 1 == 1 { 1 } else { 8 };
 
         for r in 0..16 {
             let (n, s) = match r {
@@ -164,6 +182,11 @@ impl SysBus {
             // 32-bit ROM access = two 16-bit accesses (N then S).
             self.ws_n32[r] = n + s;
             self.ws_s32[r] = s + s;
+            // EXPERIMENT: simulate game-pak prefetch (cheap sequential ROM).
+            if (0x8..=0xD).contains(&r) {
+                self.ws_s[r] = 1;
+                self.ws_s32[r] = 2;
+            }
         }
     }
 
@@ -174,8 +197,7 @@ impl SysBus {
         match region {
             0x0 | 0x3 | 0x4 | 0x7 => 1, // BIOS, IWRAM, IO, OAM
             0x2 => {
-                // EWRAM 2 wait states
-                if width == 4 { 6 } else { 3 }
+                if width == 4 { self.ewram_c32 } else { self.ewram_c16 }
             }
             0x5 | 0x6 => {
                 // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles

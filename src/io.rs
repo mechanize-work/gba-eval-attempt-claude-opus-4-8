@@ -208,6 +208,15 @@ impl SysBus {
                 #[cfg(feature = "trace")] eprintln!("WAITCNT <- {:04x} @cyc {}", val, self.sched.now); }
             0x208 => self.ime = val & 1 != 0,
             0x300 => { self.postflg = (val & 1) as u8; if val & 0x8000 != 0 { self.halted = true; } }
+            0x800 | 0x802 => {
+                if reg == 0x800 {
+                    self.memctrl = (self.memctrl & 0xFFFF0000) | val as u32;
+                } else {
+                    self.memctrl = (self.memctrl & 0xFFFF) | ((val as u32) << 16);
+                }
+                self.update_ewram_wait();
+                #[cfg(feature = "trace")] eprintln!("MEMCTRL <- {:08x} @cyc {}", self.memctrl, self.sched.now);
+            }
             _ => {}
         }
     }
