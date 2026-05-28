@@ -72,6 +72,9 @@ pub struct Cpu {
     pub pipe: [u32; 2],
     /// Set true by flush_pipeline so step() knows not to auto-advance r15.
     pub branched: bool,
+    /// Set by stores so the following opcode prefetch is non-sequential (ARM7:
+    /// STR/STM end with the next fetch as an N-cycle).
+    pub fetch_nonseq: bool,
 
     pub halted: bool,
 }
@@ -86,6 +89,7 @@ impl Cpu {
             spsr: [0; 6],
             pipe: [0; 2],
             branched: false,
+            fetch_nonseq: false,
             halted: false,
         };
         c.reset();
@@ -207,20 +211,24 @@ impl Cpu {
         let opcode = self.pipe[0];
         self.pipe[0] = self.pipe[1];
         self.branched = false;
+        self.fetch_nonseq = false;
 
         if self.thumb() {
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
-                // Deferred sequential prefetch (skipped on branch, which flushed).
+                // Deferred prefetch (skipped on branch, which flushed). A preceding
+                // store makes this fetch non-sequential.
+                let acc = if self.fetch_nonseq { Access::NonSeq } else { Access::Seq };
                 let pc = self.r[15] & !1;
-                self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
+                self.pipe[1] = bus.read16(pc, acc) as u32;
                 self.r[15] = pc.wrapping_add(2);
             }
         } else {
             arm::execute(self, bus, opcode);
             if !self.branched {
+                let acc = if self.fetch_nonseq { Access::NonSeq } else { Access::Seq };
                 let pc = self.r[15] & !3;
-                self.pipe[1] = bus.read32(pc, Access::Seq);
+                self.pipe[1] = bus.read32(pc, acc);
                 self.r[15] = pc.wrapping_add(4);
             }
         }

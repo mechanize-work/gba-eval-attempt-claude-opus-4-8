@@ -293,10 +293,12 @@ fn load_store_reg<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
             v.rotate_right((addr & 3) * 8)
         };
         bus.idle(1);
-    } else if byte {
-        bus.write8(addr, cpu.r[rd] as u8, Access::NonSeq);
     } else {
-        bus.write32(addr & !3, cpu.r[rd], Access::NonSeq);
+        if byte {
+            bus.write8(addr, cpu.r[rd] as u8, Access::NonSeq);
+        } else {
+            bus.write32(addr & !3, cpu.r[rd], Access::NonSeq);
+        }
     }
 }
 
@@ -355,10 +357,12 @@ fn load_store_imm<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
             v.rotate_right((addr & 3) * 8)
         };
         bus.idle(1);
-    } else if byte {
-        bus.write8(addr, cpu.r[rd] as u8, Access::NonSeq);
     } else {
-        bus.write32(addr & !3, cpu.r[rd], Access::NonSeq);
+        if byte {
+            bus.write8(addr, cpu.r[rd] as u8, Access::NonSeq);
+        } else {
+            bus.write32(addr & !3, cpu.r[rd], Access::NonSeq);
+        }
     }
 }
 
