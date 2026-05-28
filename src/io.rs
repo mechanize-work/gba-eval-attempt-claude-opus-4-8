@@ -118,7 +118,7 @@ impl SysBus {
             0x016 => self.ppu.bgvofs[1] = val & 0x1FF,
             0x018 => self.ppu.bghofs[2] = val & 0x1FF,
             0x01A => self.ppu.bgvofs[2] = val & 0x1FF,
-            0x01C => self.ppu.bghofs[3] = val & 0x1FF,
+            0x01C => { self.ppu.bghofs[3] = val & 0x1FF; #[cfg(feature="trace")] eprintln!("BG3HOFS={} vc={} dot={}", val&0x1FF, self.ppu.vcount, self.ppu.dot); }
             0x01E => self.ppu.bgvofs[3] = val & 0x1FF,
             0x020 => self.ppu.bg_pa[0] = val as i16,
             0x022 => self.ppu.bg_pb[0] = val as i16,

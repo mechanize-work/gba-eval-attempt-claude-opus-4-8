@@ -147,3 +147,21 @@ pub fn debug_ppu() -> [u32; 12] {
         p.bgcnt[0] as u32, p.bgcnt[1] as u32, p.bgcnt[2] as u32, p.bgcnt[3] as u32,
     ]
 }
+
+pub fn debug_apu() -> [u32; 8] {
+    let a = &emu().bus.apu;
+    [
+        a.soundcnt_l as u32, a.soundcnt_h as u32, a.soundcnt_x as u32, a.soundbias as u32,
+        a.ch1.enabled as u32 | ((a.ch2.enabled as u32) << 1) | ((a.wave.enabled as u32) << 2) | ((a.noise.enabled as u32) << 3),
+        a.fifo_a.len as u32, a.fifo_b.len as u32, a.master_enable as u32,
+    ]
+}
+
+pub fn debug_ppu2() -> [u32; 12] {
+    let p = &emu().bus.ppu;
+    [
+        p.bghofs[0] as u32, p.bgvofs[0] as u32, p.bghofs[1] as u32, p.bgvofs[1] as u32,
+        p.bghofs[2] as u32, p.bgvofs[2] as u32, p.bghofs[3] as u32, p.bgvofs[3] as u32,
+        p.mosaic as u32, p.winh[1] as u32, p.winv[1] as u32, p.winout as u32,
+    ]
+}

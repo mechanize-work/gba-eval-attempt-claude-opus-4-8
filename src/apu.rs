@@ -374,8 +374,8 @@ impl Apu {
         if h & 0x2000 != 0 { l += b_scaled * 4; } // B left
         if h & 0x1000 != 0 { r += b_scaled * 4; } // B right
 
-        // Scale to i16. These are rough; refine against oracle.
-        let scale = 8;
+        // Scale to i16. DS at 100% spans ~±512 (sample*4); map that to i16.
+        let scale = 32;
         let lo = (l * scale).clamp(-32768, 32767) as i16;
         let ro = (r * scale).clamp(-32768, 32767) as i16;
         self.buffer.push(lo);

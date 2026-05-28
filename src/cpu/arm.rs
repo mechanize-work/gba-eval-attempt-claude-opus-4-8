@@ -88,13 +88,13 @@ fn data_proc_class<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
                 } else if (op >> 24) & 0xF == 0 {
                     // bits 27-24 == 0000 => MUL/MLA; 0000 1 => MULL/MLAL
                     if (op >> 23) & 1 == 0 {
-                        multiply(cpu, op);
+                        multiply(cpu, bus, op);
                     } else {
-                        multiply_long(cpu, op);
+                        multiply_long(cpu, bus, op);
                     }
                     return;
                 } else {
-                    multiply_long(cpu, op);
+                    multiply_long(cpu, bus, op);
                     return;
                 }
             } else {
@@ -431,13 +431,30 @@ fn psr_transfer(cpu: &mut Cpu, op: u32) {
 
 // --- Multiply ---------------------------------------------------------------
 
-fn multiply(cpu: &mut Cpu, op: u32) {
+/// Internal cycle count `m` for a multiply, based on the multiplier operand.
+pub fn mul_m_cycles(rs: u32, signed: bool) -> u32 {
+    // For signed multiply, all-ones high bytes also count as "settled".
+    let v = rs;
+    if (v & 0xFFFF_FF00) == 0 || (signed && (v & 0xFFFF_FF00) == 0xFFFF_FF00) {
+        1
+    } else if (v & 0xFFFF_0000) == 0 || (signed && (v & 0xFFFF_0000) == 0xFFFF_0000) {
+        2
+    } else if (v & 0xFF00_0000) == 0 || (signed && (v & 0xFF00_0000) == 0xFF00_0000) {
+        3
+    } else {
+        4
+    }
+}
+
+fn multiply<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
     let rd = ((op >> 16) & 0xF) as usize;
     let rn = ((op >> 12) & 0xF) as usize;
     let rs = ((op >> 8) & 0xF) as usize;
     let rm = (op & 0xF) as usize;
     let accumulate = (op >> 21) & 1 == 1;
     let s = (op >> 20) & 1 == 1;
+    let m = mul_m_cycles(cpu.r[rs], true);
+    bus.idle(m + accumulate as u32);
     let mut result = cpu.r[rm].wrapping_mul(cpu.r[rs]);
     if accumulate {
         result = result.wrapping_add(cpu.r[rn]);
@@ -449,7 +466,7 @@ fn multiply(cpu: &mut Cpu, op: u32) {
     }
 }
 
-fn multiply_long(cpu: &mut Cpu, op: u32) {
+fn multiply_long<B: Bus>(cpu: &mut Cpu, bus: &mut B, op: u32) {
     let rdhi = ((op >> 16) & 0xF) as usize;
     let rdlo = ((op >> 12) & 0xF) as usize;
     let rs = ((op >> 8) & 0xF) as usize;
@@ -457,6 +474,10 @@ fn multiply_long(cpu: &mut Cpu, op: u32) {
     let accumulate = (op >> 21) & 1 == 1;
     let s = (op >> 20) & 1 == 1;
     let signed = (op >> 22) & 1 == 1;
+
+    // Multiply long: m + 1 internal cycles, +1 more if accumulate.
+    let m = mul_m_cycles(cpu.r[rs], signed);
+    bus.idle(m + 1 + accumulate as u32);
 
     let result: u64 = if signed {
         let a = cpu.r[rm] as i32 as i64;

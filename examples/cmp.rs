@@ -40,6 +40,7 @@ fn main() {
 
     let mut keys = 0u32;
     let mut total_audio = 0usize;
+    let mut audio_out: Vec<i16> = Vec::new();
     for f in 0..frames {
         for (rf, rk) in &replay {
             if *rf == f {
@@ -49,6 +50,14 @@ fn main() {
         gba_emu::emu_set_keys(keys);
         gba_emu::emu_run_frame();
         let n = gba_emu::emu_audio_samples();
+        if n > 0 {
+            let buf = gba_emu::emu_audio_buffer();
+            unsafe {
+                for i in 0..(n as usize * 2) {
+                    audio_out.push(*buf.add(i));
+                }
+            }
+        }
         total_audio += n as usize;
 
         // Dump only the final frame and a few checkpoints to save space.
@@ -57,9 +66,15 @@ fn main() {
             let path = format!("{}/frame_{:05}.ppm", outdir, f);
             dump_ppm(&path, fb);
         }
-        if std::env::var("PPU").is_ok() && f>=56 && f<=60 {
+        if std::env::var("PPU").is_ok() && f+1==frames {
             let q=gba_emu::debug_ppu();
-            eprintln!("PPU dispcnt={:04x} bldcnt={:04x} bldalpha={:04x} bldy={:04x} winin={:04x} winout={:04x} bg0c={:04x} bg1c={:04x} bg2c={:04x} bg3c={:04x}",q[0],q[1],q[2],q[3],q[4],q[5],q[8],q[9],q[10],q[11]);
+            eprintln!("PPU dispcnt={:04x} bldcnt={:04x} bldalpha={:04x} bldy={:04x} winin={:04x} winout={:04x} winh0={:04x} winv0={:04x} bg0c={:04x} bg1c={:04x} bg2c={:04x} bg3c={:04x}",q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],q[8],q[9],q[10],q[11]);
+            let r=gba_emu::debug_ppu2();
+            eprintln!("    hofs0={} vofs0={} hofs1={} vofs1={} hofs2={} vofs2={} hofs3={} vofs3={} mosaic={:04x} winh1={:04x} winv1={:04x}",r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8],r[9],r[10]);
+        }
+        if std::env::var("SND").is_ok() && (f%40==0 || f+1==frames) {
+            let a=gba_emu::debug_apu();
+            eprintln!("f{} sndcnt_l={:04x} sndcnt_h={:04x} master={} chans={:04b} fifoA={} fifoB={}",f,a[0],a[1],a[7],a[4],a[5],a[6]);
         }
         if std::env::var("DBG").is_ok() {
             let s = gba_emu::debug_state();
@@ -68,7 +83,13 @@ fn main() {
                 f, s[0], s[15], s[9], gba_emu::debug_insns(), gba_emu::debug_cycles(), r[0], r[1], r[2]);
         }
     }
-    println!("frames={} audio_pairs_last_call_total~={}", frames, total_audio);
+    if let Ok(ap) = std::env::var("AUDIO_OUT") {
+        let mut raw = Vec::with_capacity(audio_out.len()*2);
+        for s in &audio_out { raw.extend_from_slice(&s.to_le_bytes()); }
+        std::fs::write(&ap, &raw).unwrap();
+        eprintln!("wrote {} stereo pairs to {}", audio_out.len()/2, ap);
+    }
+    println!("frames={} audio_pairs_last_call_total~={} rate={}", frames, total_audio, gba_emu::emu_audio_rate());
 }
 
 fn dump_ppm(path: &str, fb: *const u32) {
