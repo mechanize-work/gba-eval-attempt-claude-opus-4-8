@@ -208,7 +208,7 @@ impl SysBus {
                 if width == 4 { self.ewram_c32 } else { self.ewram_c16 }
             }
             0x5 | 0x6 => {
-                // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles
+                // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles.
                 if width == 4 { 2 } else { 1 }
             }
             0x8..=0xF => {

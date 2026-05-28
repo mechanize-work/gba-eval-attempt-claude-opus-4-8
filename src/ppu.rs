@@ -254,13 +254,15 @@ impl Ppu {
             _ => (256, 256),
         };
 
-        let mut y = line.wrapping_add(self.bgvofs[bg] as u32);
-        if mosaic {
-            let my = ((self.mosaic >> 4) & 0xF) as u32 + 1;
-            y = (line / my) * my + (self.bgvofs[bg] as u32);
-            // approximate: mosaic vertical handled coarsely
-            y = (line - (line % my)).wrapping_add(self.bgvofs[bg] as u32);
-        }
+        let (mos_h, mos_v) = if mosaic {
+            (((self.mosaic & 0xF) as u32) + 1, (((self.mosaic >> 4) & 0xF) as u32) + 1)
+        } else {
+            (1, 1)
+        };
+
+        // Apply vertical mosaic to the screen line before adding scroll.
+        let mline = if mos_v > 1 { line - (line % mos_v) } else { line };
+        let mut y = mline.wrapping_add(self.bgvofs[bg] as u32);
         y &= height - 1;
 
         let tile_y = (y / 8) % 32;
@@ -268,7 +270,9 @@ impl Ppu {
         let quadrant_y = (y / 256) & 1;
 
         for sx in 0..SCREEN_W as u32 {
-            let mut x = sx.wrapping_add(self.bghofs[bg] as u32);
+            // Apply horizontal mosaic to the screen x before adding scroll.
+            let msx = if mos_h > 1 { sx - (sx % mos_h) } else { sx };
+            let mut x = msx.wrapping_add(self.bghofs[bg] as u32);
             x &= width - 1;
             let tile_x = (x / 8) % 32;
             let in_tile_x = x % 8;
