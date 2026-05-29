@@ -162,10 +162,9 @@ impl SysBus {
         let v = (self.memctrl >> 24) & 0xF;
         let waits = if v >= 15 { 15 } else { 15 - v };
         self.ewram_c16 = 1 + waits;
-        // EWRAM is a 16-bit bus: a 32-bit non-sequential access is two halfword
-        // accesses (doubled). Sequential burst accesses (LDM/STM) are still cheap
-        // (handled as Seq=1 in access_cycles).
-        self.ewram_c32 = 2 * (1 + waits);
+        // oracle charges EWRAM 32-bit at the single-access cost, not doubled
+        // (confirmed by STM calib AND meteorain — doubling regresses it to 100%).
+        self.ewram_c32 = 1 + waits;
         // If EWRAM disabled (bit0) we leave timings; edge case ignored.
     }
 
@@ -179,7 +178,7 @@ impl SysBus {
         // Non-sequential (branch target) access: full 1+waitstate when running
         // without prefetch; with the buffer enabled the target is often already
         // buffered, so we use the lower (GBATEK-literal) cost.
-        let np1 = |raw: u32| if prefetch { raw } else { 1 + raw };
+        let np1 = |raw: u32| if prefetch { 1 } else { 1 + raw };
         let ws0_n = np1(REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize]);
         let ws0_s = if prefetch { 1 } else { 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 } };
         let ws1_n = np1(REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize]);
