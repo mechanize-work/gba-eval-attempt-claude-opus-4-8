@@ -410,6 +410,12 @@ impl Apu {
         if h & 0x2000 != 0 { l += b_scaled * 4; } // B left
         if h & 0x1000 != 0 { r += b_scaled * 4; } // B right
 
+        // Hardware clamps the mixed signal to the 10-bit output range (the value
+        // plus the SOUNDBIAS 0x200 bias must fit in 0..0x3FF, i.e. signal in
+        // [-0x200, 0x1FF]). Loud multi-channel audio is clipped here, not allowed
+        // to run up to the full i16 range.
+        l = l.clamp(-0x200, 0x1FF);
+        r = r.clamp(-0x200, 0x1FF);
         // Scale to i16. DS at 100% spans ~±512 (sample*4); map that to i16.
         let scale = 32;
         let lo = (l * scale).clamp(-32768, 32767) as i16;
