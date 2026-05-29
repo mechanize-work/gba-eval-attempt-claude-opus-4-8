@@ -139,6 +139,13 @@ pub struct Apu {
     pub buffer: Vec<i16>,     // interleaved stereo output
 
     pub master_enable: bool,
+
+    // DC-blocking high-pass state (models the GBA's analog DC-block; oracle's
+    // output has mean 0). One-pole: y[n] = x[n] - x[n-1] + R*y[n-1].
+    hp_x_l: f32,
+    hp_y_l: f32,
+    hp_x_r: f32,
+    hp_y_r: f32,
 }
 
 impl Apu {
@@ -159,6 +166,10 @@ impl Apu {
             sample_timer: 0,
             buffer: Vec::with_capacity(2048),
             master_enable: false,
+            hp_x_l: 0.0,
+            hp_y_l: 0.0,
+            hp_x_r: 0.0,
+            hp_y_r: 0.0,
         }
     }
 
@@ -361,14 +372,23 @@ impl Apu {
             (2 * DUTY[self.ch2.duty as usize][self.ch2.phase as usize] as i32 - 1) * self.ch2.env_vol as i32
         } else { 0 };
         let wave = if self.wave.enabled && self.wave.dac_on {
-            let centered = self.wave.sample as i32 - 8; // -8..7
-            // Wave amplitude is half the square's swing (a 4-bit sample centred
-            // at 0, not doubled to match ±env_vol).
-            if self.wave.force_vol {
-                (centered * 3) / 4
+            // The volume divides the UNSIGNED 4-bit sample (sample >> code), as
+            // hardware does, THEN centres — not divide-after-centre (which gives a
+            // different truncation for odd samples below the midpoint). Full-scale
+            // matches the square's swing (×2); the residual DC of an asymmetric
+            // waveform is stripped by the output DC-block (oracle's wave mean = 0).
+            let s = self.wave.sample as i32; // 0..15
+            let (scaled, center) = if self.wave.force_vol {
+                ((s * 3) >> 2, 6)
             } else {
-                match self.wave.volume { 1 => centered, 2 => centered / 2, 3 => centered / 4, _ => 0 }
-            }
+                match self.wave.volume {
+                    1 => (s, 8),
+                    2 => (s >> 1, 4),
+                    3 => (s >> 2, 2),
+                    _ => (0, 0),
+                }
+            };
+            (scaled - center) * 2
         } else { 0 };
         let noise = if self.noise.enabled {
             (2 * self.noise.sample as i32 - 1) * self.noise.env_vol as i32
@@ -418,8 +438,20 @@ impl Apu {
         r = r.clamp(-0x200, 0x1FF);
         // Scale to i16. DS at 100% spans ~±512 (sample*4); map that to i16.
         let scale = 32;
-        let lo = (l * scale).clamp(-32768, 32767) as i16;
-        let ro = (r * scale).clamp(-32768, 32767) as i16;
+        let lf = (l * scale) as f32;
+        let rf = (r * scale) as f32;
+        // DC-blocking high-pass (one-pole, ~3 Hz cutoff). The GBA's analog output
+        // strips the DC bias; oracle's dumped audio has mean 0. Without this an
+        // asymmetric wave waveform carries a DC offset that mismatches oracle.
+        const R: f32 = 0.9964;
+        let yl = lf - self.hp_x_l + R * self.hp_y_l;
+        self.hp_x_l = lf;
+        self.hp_y_l = yl;
+        let yr = rf - self.hp_x_r + R * self.hp_y_r;
+        self.hp_x_r = rf;
+        self.hp_y_r = yr;
+        let lo = (yl.round() as i32).clamp(-32768, 32767) as i16;
+        let ro = (yr.round() as i32).clamp(-32768, 32767) as i16;
         self.buffer.push(lo);
         self.buffer.push(ro);
     }
