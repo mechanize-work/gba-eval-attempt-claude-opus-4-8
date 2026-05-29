@@ -6,25 +6,28 @@ _start:
     .space 0xC0 - 4
 main:
     ldr r12, =0x04000000
-    @ store known word to EWRAM[0]
-    ldr r0, =0x02000000
-    ldr r1, =0x12345678
-    str r1, [r0]
-    @ misaligned LDR: addr+1 -> read[0] ROR 8, addr+2 -> ROR 16, addr+3 -> ROR 24
-    ldr r2, [r0, #1]         @ expect 0x78123456
-    ldr r3, [r0, #2]         @ expect 0x56781234
-    ldr r4, [r0, #3]         @ expect 0x34567812
-    @ misaligned LDRH: addr+1 -> read[0] halfword ROR 8 (within the 16-bit)
-    ldrh r5, [r0, #1]        @ LDRH from odd addr: read16[0] ror 8 = 0x5678 ror8 = 0x7856
-    @ combine all into one value (xor), write to palette[0] backdrop (15 bits)
-    eor r2, r2, r3
-    eor r2, r2, r4
-    eor r2, r2, r5
-    ldr r6, =0x7FFF
-    and r2, r2, r6
-    ldr r1, =0x05000000
-    strh r2, [r1]            @ backdrop = combined result
-    mov r1, #0
-    strh r1, [r12]           @ DISPCNT mode0 (backdrop shows)
+    ldr r4, =0x03000000
+    ldr r5, =0x12345678
+    str r5, [r4]
+    ldr r0, [r4, #1]          @ misaligned LDR +1 -> ROR8 = 0x78123456
+    ldr r1, [r4, #2]          @ +2 -> ROR16 = 0x56781234
+    ldr r2, [r4, #3]          @ +3 -> ROR24 = 0x34567812
+    add r3, r4, #1
+    ldrh r7, [r3]             @ LDRH odd -> [aligned] ROR8 = 0x78000056
+    ldr r6, =0x06000000
+    strh r0, [r6]
+    mov r0, r0, lsr #16
+    strh r0, [r6, #2]
+    strh r1, [r6, #4]
+    mov r1, r1, lsr #16
+    strh r1, [r6, #6]
+    strh r2, [r6, #8]
+    mov r2, r2, lsr #16
+    strh r2, [r6, #10]
+    strh r7, [r6, #12]
+    mov r7, r7, lsr #16
+    strh r7, [r6, #14]
+    ldr r1, =0x0403
+    strh r1, [r12]
 forever:
     b forever

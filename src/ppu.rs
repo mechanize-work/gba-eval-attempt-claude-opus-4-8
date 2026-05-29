@@ -66,7 +66,7 @@ impl Ppu {
             palette: vec![0u8; 1024].into_boxed_slice(),
             vram: vec![0u8; 96 * 1024].into_boxed_slice(),
             oam: vec![0u8; 1024].into_boxed_slice(),
-            dispcnt: 0,
+            dispcnt: 0x80,
             green_swap: 0,
             dispstat: 0,
             vcount: 0,
@@ -106,7 +106,9 @@ impl Ppu {
         for b in self.palette.iter_mut() { *b = 0; }
         for b in self.vram.iter_mut() { *b = 0; }
         for b in self.oam.iter_mut() { *b = 0; }
-        self.dispcnt = 0;
+        // BIOS leaves forced-blank (DISPCNT bit 7) on after boot, so the screen is
+        // white until the game first writes DISPCNT (matches oracle's boot frames).
+        self.dispcnt = 0x80;
         self.dispstat = 0;
         self.vcount = 0;
         self.bgcnt = [0; 4];
