@@ -514,6 +514,13 @@ impl SysBus {
 
     pub fn read32_raw(&mut self, addr: u32) -> u32 {
         let addr = addr & !3;
+        // SRAM/Flash sit on an 8-bit bus: a 16/32-bit read returns the single
+        // addressed byte replicated across all bytes (value * 0x01010101), NOT
+        // two/four distinct bytes.
+        if matches!((addr >> 24) & 0xF, 0xE | 0xF) {
+            let b = self.save.read8(addr) as u32;
+            return b * 0x0101_0101;
+        }
         (self.read16_raw(addr) as u32) | ((self.read16_raw(addr + 2) as u32) << 16)
     }
 
@@ -594,6 +601,12 @@ impl SysBus {
 
     pub fn write32_raw(&mut self, addr: u32, val: u32) {
         let addr = addr & !3;
+        // SRAM/Flash 8-bit bus: a 16/32-bit write only writes the single
+        // addressed byte (the low byte of the value), not 2/4 bytes.
+        if matches!((addr >> 24) & 0xF, 0xE | 0xF) {
+            self.save.write8(addr, val as u8);
+            return;
+        }
         self.write16_raw(addr, val as u16);
         self.write16_raw(addr + 2, (val >> 16) as u16);
     }
@@ -643,5 +656,8 @@ impl Bus for SysBus {
     }
     fn irq_pending(&self) -> bool {
         self.irq_active()
+    }
+    fn set_exec_in_bios(&mut self, in_bios: bool) {
+        self.exec_in_bios = in_bios;
     }
 }

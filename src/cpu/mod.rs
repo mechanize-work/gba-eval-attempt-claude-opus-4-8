@@ -190,6 +190,9 @@ impl Cpu {
     /// as instructions expect to read during execution).
     #[inline]
     pub fn flush_pipeline<B: Bus>(&mut self, bus: &mut B) {
+        // The pipeline refill fetches from the new PC (e.g. the BIOS exception
+        // vectors on SWI/IRQ), so update BIOS-execution state before fetching.
+        bus.set_exec_in_bios(self.r[15] < 0x4000);
         if self.thumb() {
             let pc = self.r[15] & !1;
             self.pipe[0] = bus.read16(pc, Access::NonSeq) as u32;
