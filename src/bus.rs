@@ -66,13 +66,6 @@ pub struct SysBus {
     ws_s32: [u32; 16],
     sram_wait: u32,
 
-    // Game-pak prefetch buffer (WAITCNT bit 14). pf_addr = next sequential ROM
-    // halfword the buffer expects; pf_ready = sched.now cycle when the next buffered
-    // halfword is available. A non-sequential code fetch flushes it.
-    prefetch_on: bool,
-    pf_addr: u32,
-    pf_ready: u64,
-
     // IRQ line caching.
     pub irq_line: bool,
 }
@@ -98,7 +91,7 @@ impl SysBus {
             ime: false,
             keyinput: 0x03FF,
             keycnt: 0,
-            waitcnt: 0x4000,
+            waitcnt: 0,
             memctrl: 0x0D00_0020,
             ewram_c16: 3,
             ewram_c32: 6,
@@ -116,9 +109,6 @@ impl SysBus {
             ws_n32: [1; 16],
             ws_s32: [1; 16],
             sram_wait: 5,
-            prefetch_on: true,
-            pf_addr: 0xFFFF_FFFF,
-            pf_ready: 0,
             irq_line: false,
         };
         b.update_waitstates();
@@ -153,9 +143,7 @@ impl SysBus {
         self.ime = false;
         self.keyinput = 0x03FF;
         self.keycnt = 0;
-        // The GBA BIOS sets WAITCNT to 0x4317 (game-pak prefetch on) before handing
-        // off to the cartridge; emulate that as the post-boot default.
-        self.waitcnt = 0x4000;
+        self.waitcnt = 0;
         self.memctrl = 0x0D00_0020;
         self.postflg = 0;
         self.haltcnt = 0;
@@ -174,9 +162,10 @@ impl SysBus {
         let v = (self.memctrl >> 24) & 0xF;
         let waits = if v >= 15 { 15 } else { 15 - v };
         self.ewram_c16 = 1 + waits;
-        // EXPERIMENT: oracle charges EWRAM 32-bit at the single-access cost, not
-        // doubled — calibrate against the STM test.
-        self.ewram_c32 = 1 + waits;
+        // EWRAM is a 16-bit bus: a 32-bit non-sequential access is two halfword
+        // accesses (doubled). Sequential burst accesses (LDM/STM) are still cheap
+        // (handled as Seq=1 in access_cycles).
+        self.ewram_c32 = 2 * (1 + waits);
         // If EWRAM disabled (bit0) we leave timings; edge case ignored.
     }
 
@@ -185,17 +174,18 @@ impl SysBus {
         // Access cycles = 1 + waitstate (hardware-accurate). When the game-pak
         // prefetch buffer is enabled (bit 14), sequential ROM fetches are served
         // from the buffer at 1 cycle.
-        self.prefetch_on = w & 0x4000 != 0;
+        let prefetch = w & 0x4000 != 0;
         self.sram_wait = 1 + REGION_TIMINGS_NSEQ[(w & 0x3) as usize];
-        // All ROM accesses use the raw 1+waitstate cost. The game-pak prefetch
-        // buffer's benefit (cheap sequential code fetches) is modelled separately
-        // in fetch16/fetch32, never here — data accesses never benefit from it.
-        let ws0_n = 1 + REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
-        let ws0_s = 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 };
-        let ws1_n = 1 + REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
-        let ws1_s = 1 + if (w >> 7) & 1 == 1 { 1 } else { 4 };
-        let ws2_n = 1 + REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
-        let ws2_s = 1 + if (w >> 10) & 1 == 1 { 1 } else { 8 };
+        // Non-sequential (branch target) access: full 1+waitstate when running
+        // without prefetch; with the buffer enabled the target is often already
+        // buffered, so we use the lower (GBATEK-literal) cost.
+        let np1 = |raw: u32| if prefetch { raw } else { 1 + raw };
+        let ws0_n = np1(REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize]);
+        let ws0_s = if prefetch { 1 } else { 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 } };
+        let ws1_n = np1(REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize]);
+        let ws1_s = if prefetch { 1 } else { 1 + if (w >> 7) & 1 == 1 { 1 } else { 4 } };
+        let ws2_n = np1(REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize]);
+        let ws2_s = if prefetch { 1 } else { 1 + if (w >> 10) & 1 == 1 { 1 } else { 8 } };
 
         for r in 0..16 {
             let (n, s) = match r {
@@ -210,36 +200,6 @@ impl SysBus {
             // 32-bit ROM access = two 16-bit accesses (N then S).
             self.ws_n32[r] = n + s;
             self.ws_s32[r] = s + s;
-        }
-    }
-
-    /// Game-pak prefetch buffer timing for a ROM instruction fetch. The prefetcher
-    /// fills the buffer one halfword every `ws_s` cycles in the background; a
-    /// sequential fetch is served in 1 cycle once the prefetcher has reached it,
-    /// otherwise the CPU stalls. A branch (non-sequential fetch) finds the buffer
-    /// empty and pays the full N+S access, then the prefetcher restarts.
-    fn prefetch_fetch(&mut self, addr: u32, access: Access, region: usize, halfwords: u32) -> u32 {
-        let s = self.ws_s[region] as u64;
-        let n = self.ws_n[region] as u64;
-        let now = self.sched.now;
-        if access == Access::Seq && addr == self.pf_addr {
-            let mut t = now;
-            for _ in 0..halfwords {
-                let avail = self.pf_ready;
-                if t < avail {
-                    t = avail; // stall until the prefetcher delivers this halfword
-                } else {
-                    t += 1; // already buffered: one cycle to read it out
-                }
-                self.pf_ready = avail + s; // next halfword arrives s cycles later
-                self.pf_addr = self.pf_addr.wrapping_add(2);
-            }
-            (t - now) as u32
-        } else {
-            let cost = n + (halfwords as u64 - 1) * s;
-            self.pf_addr = addr.wrapping_add(halfwords * 2);
-            self.pf_ready = now + cost + s;
-            cost as u32
         }
     }
 
@@ -656,30 +616,6 @@ impl Bus for SysBus {
         let c = self.access_cycles(addr, 4, access);
         self.tick(c);
         self.write32_raw(addr, val);
-    }
-    fn fetch16(&mut self, addr: u32, access: Access) -> u16 {
-        let region = (addr >> 24) as usize & 0xF;
-        if self.prefetch_on && (0x8..=0xD).contains(&region) {
-            let cost = self.prefetch_fetch(addr, access, region, 1);
-            self.tick(cost);
-            let v = self.read16_raw(addr);
-            self.open_bus = v as u32 | ((v as u32) << 16);
-            return v;
-        }
-        self.pf_addr = 0xFFFF_FFFF; // running outside ROM invalidates the buffer
-        self.read16(addr, access)
-    }
-    fn fetch32(&mut self, addr: u32, access: Access) -> u32 {
-        let region = (addr >> 24) as usize & 0xF;
-        if self.prefetch_on && (0x8..=0xD).contains(&region) {
-            let cost = self.prefetch_fetch(addr, access, region, 2);
-            self.tick(cost);
-            let v = self.read32_raw(addr);
-            self.open_bus = v;
-            return v;
-        }
-        self.pf_addr = 0xFFFF_FFFF;
-        self.read32(addr, access)
     }
     fn idle(&mut self, cycles: u32) {
         self.tick(cycles);

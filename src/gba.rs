@@ -10,8 +10,6 @@ pub struct Gba {
     audio_drained: bool,
     rom_loaded: bool,
     pub insn_count: u64,
-    #[cfg(feature = "trace")]
-    _rom_entered: bool,
 }
 
 const BIOS_STUB: &[u8] = include_bytes!("../spec/gba_bios_stub.bin");
@@ -26,8 +24,6 @@ impl Gba {
             audio_drained: false,
             rom_loaded: false,
             insn_count: 0,
-            #[cfg(feature = "trace")]
-            _rom_entered: false,
         }
     }
 
@@ -83,11 +79,6 @@ impl Gba {
                 self.cpu.enter_irq(&mut self.bus);
             }
 
-            #[cfg(feature = "trace")]
-            if !self._rom_entered && (self.cpu.r[15] & 0xFF00_0000) == 0x0800_0000 {
-                self._rom_entered = true;
-                eprintln!("BIOS boot done: reached ROM at cyc {}, insns {}", self.bus.sched.now, self.insn_count);
-            }
             self.cpu.step(&mut self.bus);
             self.insn_count += 1;
 

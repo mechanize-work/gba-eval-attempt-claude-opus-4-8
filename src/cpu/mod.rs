@@ -19,14 +19,6 @@ pub trait Bus {
     fn write8(&mut self, addr: u32, val: u8, access: Access);
     fn write16(&mut self, addr: u32, val: u16, access: Access);
     fn write32(&mut self, addr: u32, val: u32, access: Access);
-    /// Instruction (code) fetch. May be served by the game-pak prefetch buffer;
-    /// default implementation just performs a normal read.
-    fn fetch16(&mut self, addr: u32, access: Access) -> u16 {
-        self.read16(addr, access)
-    }
-    fn fetch32(&mut self, addr: u32, access: Access) -> u32 {
-        self.read32(addr, access)
-    }
     /// Internal cycles (no bus access).
     fn idle(&mut self, cycles: u32);
     /// True if an enabled+requested IRQ is pending (IE & IF & IME).
@@ -197,13 +189,13 @@ impl Cpu {
     pub fn flush_pipeline<B: Bus>(&mut self, bus: &mut B) {
         if self.thumb() {
             let pc = self.r[15] & !1;
-            self.pipe[0] = bus.fetch16(pc, Access::NonSeq) as u32;
-            self.pipe[1] = bus.fetch16(pc.wrapping_add(2), Access::Seq) as u32;
+            self.pipe[0] = bus.read16(pc, Access::NonSeq) as u32;
+            self.pipe[1] = bus.read16(pc.wrapping_add(2), Access::Seq) as u32;
             self.r[15] = pc.wrapping_add(4);
         } else {
             let pc = self.r[15] & !3;
-            self.pipe[0] = bus.fetch32(pc, Access::NonSeq);
-            self.pipe[1] = bus.fetch32(pc.wrapping_add(4), Access::Seq);
+            self.pipe[0] = bus.read32(pc, Access::NonSeq);
+            self.pipe[1] = bus.read32(pc.wrapping_add(4), Access::Seq);
             self.r[15] = pc.wrapping_add(8);
         }
         self.branched = true;
@@ -221,7 +213,7 @@ impl Cpu {
             thumb::execute(self, bus, opcode as u16);
             if !self.branched {
                 let pc = self.r[15] & !1;
-                self.pipe[1] = bus.fetch16(pc, Access::Seq) as u32;
+                self.pipe[1] = bus.read16(pc, Access::Seq) as u32;
                 self.r[15] = pc.wrapping_add(2);
             }
         } else {
@@ -229,7 +221,7 @@ impl Cpu {
             arm::execute(self, bus, opcode);
             if !self.branched {
                 let pc = self.r[15] & !3;
-                self.pipe[1] = bus.fetch32(pc, Access::Seq);
+                self.pipe[1] = bus.read32(pc, Access::Seq);
                 self.r[15] = pc.wrapping_add(4);
             }
         }
