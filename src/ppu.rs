@@ -364,21 +364,39 @@ impl Ppu {
         }
     }
 
-    fn render_mode3(&mut self, line: u32) {
-        let base = (line as usize) * SCREEN_W * 2;
+    fn render_mode3(&mut self, _line: u32) {
+        // Bitmap modes are BG2 (an affine BG): sample through the affine matrix.
+        // Identity (PA=PD=256, ref=0) reduces to the 1:1 case.
+        let mut cx = self.bg_x_latch[0];
+        let mut cy = self.bg_y_latch[0];
+        let pa = self.bg_pa[0] as i32;
+        let pc = self.bg_pc[0] as i32;
         for x in 0..SCREEN_W {
-            let addr = base + x * 2;
+            let tx = cx >> 8;
+            let ty = cy >> 8;
+            cx = cx.wrapping_add(pa);
+            cy = cy.wrapping_add(pc);
+            if tx < 0 || ty < 0 || tx >= 240 || ty >= 160 { continue; }
+            let addr = (ty as usize * 240 + tx as usize) * 2;
             let color = self.vram16(addr) & 0x7FFF;
             self.line_bg[2][x] = color;
             self.bg_drawn[2][x] = true;
         }
     }
 
-    fn render_mode4(&mut self, line: u32) {
-        let frame_sel = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
-        let base = frame_sel + (line as usize) * SCREEN_W;
+    fn render_mode4(&mut self, _line: u32) {
+        let frame_sel: usize = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
+        let mut cx = self.bg_x_latch[0];
+        let mut cy = self.bg_y_latch[0];
+        let pa = self.bg_pa[0] as i32;
+        let pc = self.bg_pc[0] as i32;
         for x in 0..SCREEN_W {
-            let idx = self.vram[base + x] as usize;
+            let tx = cx >> 8;
+            let ty = cy >> 8;
+            cx = cx.wrapping_add(pa);
+            cy = cy.wrapping_add(pc);
+            if tx < 0 || ty < 0 || tx >= 240 || ty >= 160 { continue; }
+            let idx = self.vram[frame_sel + ty as usize * 240 + tx as usize] as usize;
             if idx != 0 {
                 self.line_bg[2][x] = self.pal16(idx);
                 self.bg_drawn[2][x] = true;
@@ -386,12 +404,20 @@ impl Ppu {
         }
     }
 
-    fn render_mode5(&mut self, line: u32) {
-        if line >= 128 { return; }
-        let frame_sel = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
-        let base = frame_sel + (line as usize) * 160 * 2;
-        for x in 0..160 {
-            let addr = base + x * 2;
+    fn render_mode5(&mut self, _line: u32) {
+        // Mode 5 bitmap is 160x128, sampled through the BG2 affine matrix.
+        let frame_sel: usize = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
+        let mut cx = self.bg_x_latch[0];
+        let mut cy = self.bg_y_latch[0];
+        let pa = self.bg_pa[0] as i32;
+        let pc = self.bg_pc[0] as i32;
+        for x in 0..SCREEN_W {
+            let tx = cx >> 8;
+            let ty = cy >> 8;
+            cx = cx.wrapping_add(pa);
+            cy = cy.wrapping_add(pc);
+            if tx < 0 || ty < 0 || tx >= 160 || ty >= 128 { continue; }
+            let addr = frame_sel + (ty as usize * 160 + tx as usize) * 2;
             let color = self.vram16(addr) & 0x7FFF;
             self.line_bg[2][x] = color;
             self.bg_drawn[2][x] = true;
@@ -500,8 +526,12 @@ impl Ppu {
 
                 let color;
                 if color256 {
-                    let tile_pitch = if one_dim { tile_w as usize } else { 32 };
-                    let tn = tile_idx + ty * tile_pitch * 2 + tx * 2;
+                    // 1D: tiles are consecutive, row pitch = tile_w doubled for
+                    // 8bpp (each tile = 2 slots). 2D: the grid is 32 4bpp-slots
+                    // wide regardless of depth (NOT doubled); only the column
+                    // step doubles for 8bpp.
+                    let tile_pitch = if one_dim { tile_w as usize * 2 } else { 32 };
+                    let tn = tile_idx + ty * tile_pitch + tx * 2;
                     // For bitmap modes, obj tiles must be >= 512.
                     if bitmap_mode && tile_idx < 512 { continue; }
                     let addr = tile_base + tn * 32 + (in_y * 8 + in_x);
