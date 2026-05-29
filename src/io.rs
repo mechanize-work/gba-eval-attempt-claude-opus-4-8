@@ -15,14 +15,17 @@ impl SysBus {
             0x002 => self.ppu.green_swap,
             0x004 => self.ppu.dispstat,
             0x006 => self.ppu.vcount,
-            0x008 => self.ppu.bgcnt[0],
-            0x00A => self.ppu.bgcnt[1],
+            // BG0/1 are text BGs: bit 13 (affine display-area overflow) is unused
+            // and reads back as 0. BG2/3 keep it.
+            0x008 => self.ppu.bgcnt[0] & 0xDFFF,
+            0x00A => self.ppu.bgcnt[1] & 0xDFFF,
             0x00C => self.ppu.bgcnt[2],
             0x00E => self.ppu.bgcnt[3],
-            0x048 => self.ppu.winin,
-            0x04A => self.ppu.winout,
-            0x050 => self.ppu.bldcnt,
-            0x052 => self.ppu.bldalpha,
+            // Unused high bits read back as 0 (verified vs oracle).
+            0x048 => self.ppu.winin & 0x3F3F,
+            0x04A => self.ppu.winout & 0x3F3F,
+            0x050 => self.ppu.bldcnt & 0x3FFF,
+            0x052 => self.ppu.bldalpha & 0x1F1F,
             // Sound
             0x060 => self.sound_read(0x060),
             0x062 => self.sound_read(0x062),

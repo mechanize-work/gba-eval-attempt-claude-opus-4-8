@@ -430,6 +430,13 @@ impl Apu {
         if h & 0x2000 != 0 { l += b_scaled * 4; } // B left
         if h & 0x1000 != 0 { r += b_scaled * 4; } // B right
 
+        // SOUNDCNT_X bit7 (master enable) gates ALL sound (PSG + FIFO). When off,
+        // the output is silent (the DC-block still settles toward 0).
+        if !self.master_enable {
+            l = 0;
+            r = 0;
+        }
+
         // Hardware clamps the mixed signal to the 10-bit output range (the value
         // plus the SOUNDBIAS 0x200 bias must fit in 0..0x3FF, i.e. signal in
         // [-0x200, 0x1FF]). Loud multi-channel audio is clipped here, not allowed
