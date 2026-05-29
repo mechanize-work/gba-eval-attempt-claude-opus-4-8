@@ -741,7 +741,10 @@ fn blend_brighten(top: u16, bldy: u16) -> u16 {
 #[inline]
 fn blend_darken(top: u16, bldy: u16) -> u16 {
     let evy = (bldy & 0x1F).min(16) as u32;
-    let down = |c: u32| -> u32 { c - ((c * evy) >> 4) };
+    // Hardware floors the whole darkened value: I*(16-EVY)/16, which equals
+    // I - ceil(I*EVY/16). Subtracting the floored decrement (I - (I*EVY>>4))
+    // rounds the wrong way for fractional results.
+    let down = |c: u32| -> u32 { (c * (16 - evy)) >> 4 };
     let r = down((top & 0x1F) as u32);
     let g = down(((top >> 5) & 0x1F) as u32);
     let b = down(((top >> 10) & 0x1F) as u32);

@@ -18,7 +18,7 @@ main:
     ldr r1, =0x0800
     strh r1, [r12, #8]
     @ BLDCNT: brighten(0x80) + BG0 1st target(0x01) = 0x81
-    ldr r1, =0x00C1
+    ldr r1, =0x0081
     strh r1, [r12, #0x50]
     @ BLDY EVY=5
     mov r1, #5

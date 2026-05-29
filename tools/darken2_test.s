@@ -7,7 +7,7 @@ _start:
 main:
     ldr r12, =0x04000000
     ldr r0, =0x05000000
-    ldr r1, =0x0014          @ palette[1] R20
+    ldr r1, =0x29CB          @ palette[1]: R11 G14 B10 (arbitrary)
     strh r1, [r0, #2]
     ldr r0, =0x06000000
     ldr r1, =0x11111111
@@ -17,13 +17,11 @@ main:
     bne 1b
     ldr r1, =0x0800
     strh r1, [r12, #8]
-    @ BLDCNT: brighten(0x80) + BG0 1st target(0x01) = 0x81
     ldr r1, =0x00C1
     strh r1, [r12, #0x50]
-    @ BLDY EVY=5
-    mov r1, #5
+    mov r1, #11              @ EVY=11
     strh r1, [r12, #0x54]
-    ldr r1, =0x0100          @ mode0 BG0
+    ldr r1, =0x0100
     strh r1, [r12]
 forever:
     b forever
