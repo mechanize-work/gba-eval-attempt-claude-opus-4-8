@@ -4,6 +4,10 @@ use crate::bus::SysBus;
 
 impl SysBus {
     pub fn sound_read(&self, reg: u32) -> u16 {
+        // PSG registers 0x60-0x81 read back as 0 while the master enable is off.
+        if !self.apu.master_enable && (0x060..=0x081).contains(&reg) {
+            return 0;
+        }
         let a = &self.apu;
         match reg {
             0x060 => {
@@ -58,7 +62,12 @@ impl SysBus {
     }
 
     pub fn sound_write(&mut self, reg: u32, val: u16) {
-        // Master enable gate: when off, ignore most writes.
+        // While the master enable (SOUNDCNT_X bit7) is off, the PSG registers
+        // 0x60-0x81 are reset to 0 and cannot be written (hardware). SOUNDCNT_H/X,
+        // SOUNDBIAS and wave RAM are unaffected.
+        if !self.apu.master_enable && (0x060..=0x081).contains(&reg) {
+            return;
+        }
         match reg {
             0x060 => {
                 let c = &mut self.apu.ch1;
@@ -153,7 +162,16 @@ impl SysBus {
                 if val & 0x8000 != 0 { self.apu.fifo_b.clear(); }
             }
             0x084 => {
-                self.apu.master_enable = val & 0x80 != 0;
+                let en = val & 0x80 != 0;
+                self.apu.master_enable = en;
+                if !en {
+                    // Master off disables the PSG channels (their status bits read
+                    // 0 and the registers reset); DS FIFOs are separate.
+                    self.apu.ch1.enabled = false;
+                    self.apu.ch2.enabled = false;
+                    self.apu.wave.enabled = false;
+                    self.apu.noise.enabled = false;
+                }
             }
             _ => {}
         }

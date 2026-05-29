@@ -37,7 +37,8 @@ impl SysBus {
             0x074 => self.sound_read(0x074),
             0x078 => self.sound_read(0x078),
             0x07C => self.sound_read(0x07C),
-            0x080 => self.apu.soundcnt_l,
+            // SOUNDCNT_L is in the 0x60-0x81 master-gated range: reads 0 while off.
+            0x080 => if self.apu.master_enable { self.apu.soundcnt_l } else { 0 },
             0x082 => self.apu.soundcnt_h,
             0x084 => self.sound_read(0x084),
             // Bits 0,10-13 unused (read 0); bits 1-9 bias, 14-15 resolution.
@@ -154,7 +155,7 @@ impl SysBus {
             // Sound channel registers.
             0x060 | 0x062 | 0x064 | 0x066 | 0x068 | 0x06C
             | 0x070 | 0x072 | 0x074 | 0x078 | 0x07C => self.sound_write(reg, val),
-            0x080 => { self.apu.soundcnt_l = val; }
+            0x080 => { if self.apu.master_enable { self.apu.soundcnt_l = val; } }
             0x082 => self.sound_write(0x082, val),
             0x084 => self.sound_write(0x084, val),
             0x088 => self.apu.soundbias = val,
