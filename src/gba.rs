@@ -169,9 +169,6 @@ impl Gba {
         let mut src = self.bus.dma.ch[ch].cur_src;
         let mut dst = self.bus.dma.ch[ch].cur_dst;
 
-        // DMA startup: 2 internal cycles before the first transfer.
-        self.bus.idle(2);
-
         let mut access = Access::NonSeq;
         for _ in 0..count {
             if word32 {

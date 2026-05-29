@@ -260,6 +260,11 @@ impl SysBus {
             t.prescaler_cycles = 0;
         }
         t.control = val;
+        #[cfg(feature = "trace")]
+        if now_enabled {
+            eprintln!("TIMER{} reload={:04x} ctrl={:04x} prescale={} cascade={} irq={} @cyc {}",
+                ch, t.reload, val, val & 3, (val >> 2) & 1, (val >> 6) & 1, self.sched.now);
+        }
         self.timers.refresh_active();
     }
 

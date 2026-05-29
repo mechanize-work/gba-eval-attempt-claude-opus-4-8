@@ -215,7 +215,7 @@ impl SysBus {
                 // display the PPU contends for these memories, inserting +1 cycle.
                 let base = if width == 4 { 2 } else { 1 };
                 let active = self.ppu.vcount < 160
-                    && self.ppu.dot < 1006
+                    && self.ppu.dot < 960
                     && (self.ppu.dispcnt & 0x80) == 0;
                 base + active as u32
             }
