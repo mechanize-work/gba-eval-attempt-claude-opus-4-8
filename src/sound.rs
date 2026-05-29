@@ -141,7 +141,10 @@ impl SysBus {
                 }
             }
             0x082 => {
-                self.apu.soundcnt_h = val;
+                // Bits 11/15 are write-only FIFO-reset triggers; they read back
+                // as 0 (hardware). Storing them would make a read-modify-write of
+                // SOUNDCNT_H re-trigger the reset on every write.
+                self.apu.soundcnt_h = val & !0x8800;
                 if val & 0x0800 != 0 { self.apu.fifo_a.clear(); }
                 if val & 0x8000 != 0 { self.apu.fifo_b.clear(); }
             }
