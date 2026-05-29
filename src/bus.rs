@@ -91,7 +91,7 @@ impl SysBus {
             ime: false,
             keyinput: 0x03FF,
             keycnt: 0,
-            waitcnt: 0,
+            waitcnt: 0x4317,
             memctrl: 0x0D00_0020,
             ewram_c16: 3,
             ewram_c32: 6,
@@ -143,7 +143,9 @@ impl SysBus {
         self.ime = false;
         self.keyinput = 0x03FF;
         self.keycnt = 0;
-        self.waitcnt = 0;
+        // The GBA BIOS sets WAITCNT to 0x4317 (game-pak prefetch on) before handing
+        // off to the cartridge; emulate that as the post-boot default.
+        self.waitcnt = 0x4317;
         self.memctrl = 0x0D00_0020;
         self.postflg = 0;
         self.haltcnt = 0;
@@ -175,10 +177,10 @@ impl SysBus {
         // from the buffer at 1 cycle.
         let prefetch = w & 0x4000 != 0;
         self.sram_wait = 1 + REGION_TIMINGS_NSEQ[(w & 0x3) as usize];
-        // Non-sequential (branch target) access: full 1+waitstate when running
-        // without prefetch; with the buffer enabled the target is often already
-        // buffered, so we use the lower (GBATEK-literal) cost.
-        let np1 = |raw: u32| if prefetch { raw } else { 1 + raw };
+        // Non-sequential (branch target) access always pays the full 1+waitstate:
+        // the prefetch buffer only holds the sequential stream, never the target of
+        // a jump. Only sequential (S) fetches are served cheaply when prefetch is on.
+        let np1 = |raw: u32| 1 + raw;
         let ws0_n = np1(REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize]);
         let ws0_s = if prefetch { 1 } else { 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 } };
         let ws1_n = np1(REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize]);
