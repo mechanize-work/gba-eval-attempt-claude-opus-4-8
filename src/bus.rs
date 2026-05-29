@@ -313,6 +313,10 @@ impl SysBus {
                         self.if_ |= IRQ_VBLANK;
                     }
                     self.trigger_dma_vblank();
+                    // DMA3 Video Capture auto-disables after the visible period.
+                    if self.dma.ch[3].enabled() && self.dma.ch[3].timing() == 3 {
+                        self.dma.ch[3].control &= !0x8000;
+                    }
                 } else if new_line == 0 {
                     self.ppu.dispstat &= !0x1;
                     self.frame_complete = true;
