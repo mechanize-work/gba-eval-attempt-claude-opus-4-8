@@ -322,7 +322,7 @@ impl Ppu {
         }
     }
 
-    fn render_affine_bg(&mut self, bg: usize, _line: u32) {
+    fn render_affine_bg(&mut self, bg: usize, line: u32) {
         let idx = bg - 2;
         let cnt = self.bgcnt[bg];
         let char_base = (((cnt >> 2) & 0x3) as usize) * 0x4000;
@@ -332,24 +332,23 @@ impl Ppu {
         let map_size: u32 = match size { 0 => 128, 1 => 256, 2 => 512, _ => 1024 };
         let tiles = map_size / 8;
 
-        let mut cx = self.bg_x_latch[idx];
-        let mut cy = self.bg_y_latch[idx];
+        let (mos_h, _mvoff, mut cx, mut cy) = self.affine_mosaic_setup(idx, line);
         let pa = self.bg_pa[idx] as i32;
         let pc = self.bg_pc[idx] as i32;
+        let (mut stx, mut sty) = (0i32, 0i32);
 
         for sx in 0..SCREEN_W {
-            let tx = cx >> 8;
-            let ty = cy >> 8;
+            if sx as i32 % mos_h == 0 { stx = cx >> 8; sty = cy >> 8; }
             cx = cx.wrapping_add(pa);
             cy = cy.wrapping_add(pc);
 
             let (px, py) = if wrap {
-                (tx.rem_euclid(map_size as i32) as u32, ty.rem_euclid(map_size as i32) as u32)
+                (stx.rem_euclid(map_size as i32) as u32, sty.rem_euclid(map_size as i32) as u32)
             } else {
-                if tx < 0 || ty < 0 || tx >= map_size as i32 || ty >= map_size as i32 {
+                if stx < 0 || sty < 0 || stx >= map_size as i32 || sty >= map_size as i32 {
                     continue;
                 }
-                (tx as u32, ty as u32)
+                (stx as u32, sty as u32)
             };
             let map_idx = screen_base + (py / 8 * tiles + px / 8) as usize;
             if map_idx >= self.vram.len() { continue; }
@@ -364,39 +363,54 @@ impl Ppu {
         }
     }
 
-    fn render_mode3(&mut self, _line: u32) {
+    fn render_mode3(&mut self, line: u32) {
         // Bitmap modes are BG2 (an affine BG): sample through the affine matrix.
         // Identity (PA=PD=256, ref=0) reduces to the 1:1 case.
-        let mut cx = self.bg_x_latch[0];
-        let mut cy = self.bg_y_latch[0];
+        let (mos_h, mvoff, mut cx, mut cy) = self.affine_mosaic_setup(0, line);
         let pa = self.bg_pa[0] as i32;
         let pc = self.bg_pc[0] as i32;
+        let _ = mvoff;
+        let (mut stx, mut sty) = (0i32, 0i32);
         for x in 0..SCREEN_W {
-            let tx = cx >> 8;
-            let ty = cy >> 8;
+            if x as i32 % mos_h == 0 { stx = cx >> 8; sty = cy >> 8; }
             cx = cx.wrapping_add(pa);
             cy = cy.wrapping_add(pc);
-            if tx < 0 || ty < 0 || tx >= 240 || ty >= 160 { continue; }
-            let addr = (ty as usize * 240 + tx as usize) * 2;
+            if stx < 0 || sty < 0 || stx >= 240 || sty >= 160 { continue; }
+            let addr = (sty as usize * 240 + stx as usize) * 2;
             let color = self.vram16(addr) & 0x7FFF;
             self.line_bg[2][x] = color;
             self.bg_drawn[2][x] = true;
         }
     }
 
-    fn render_mode4(&mut self, _line: u32) {
+    /// Common affine+mosaic setup: returns (horizontal mosaic step, vertical
+    /// offset into the block, and the starting cx/cy with the reference rewound
+    /// to the block-top line for vertical mosaic). idx 0=BG2, 1=BG3.
+    fn affine_mosaic_setup(&self, idx: usize, line: u32) -> (i32, i32, i32, i32) {
+        let bg = idx + 2;
+        let (mos_h, mos_v) = if self.bgcnt[bg] & 0x40 != 0 {
+            (((self.mosaic & 0xF) as i32) + 1, (((self.mosaic >> 4) & 0xF) as i32) + 1)
+        } else {
+            (1, 1)
+        };
+        let mvoff = (line as i32) % mos_v;
+        let cx = self.bg_x_latch[idx].wrapping_sub(mvoff.wrapping_mul(self.bg_pb[idx] as i32));
+        let cy = self.bg_y_latch[idx].wrapping_sub(mvoff.wrapping_mul(self.bg_pd[idx] as i32));
+        (mos_h, mvoff, cx, cy)
+    }
+
+    fn render_mode4(&mut self, line: u32) {
         let frame_sel: usize = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
-        let mut cx = self.bg_x_latch[0];
-        let mut cy = self.bg_y_latch[0];
+        let (mos_h, _mvoff, mut cx, mut cy) = self.affine_mosaic_setup(0, line);
         let pa = self.bg_pa[0] as i32;
         let pc = self.bg_pc[0] as i32;
+        let (mut stx, mut sty) = (0i32, 0i32);
         for x in 0..SCREEN_W {
-            let tx = cx >> 8;
-            let ty = cy >> 8;
+            if x as i32 % mos_h == 0 { stx = cx >> 8; sty = cy >> 8; }
             cx = cx.wrapping_add(pa);
             cy = cy.wrapping_add(pc);
-            if tx < 0 || ty < 0 || tx >= 240 || ty >= 160 { continue; }
-            let idx = self.vram[frame_sel + ty as usize * 240 + tx as usize] as usize;
+            if stx < 0 || sty < 0 || stx >= 240 || sty >= 160 { continue; }
+            let idx = self.vram[frame_sel + sty as usize * 240 + stx as usize] as usize;
             if idx != 0 {
                 self.line_bg[2][x] = self.pal16(idx);
                 self.bg_drawn[2][x] = true;
@@ -404,20 +418,19 @@ impl Ppu {
         }
     }
 
-    fn render_mode5(&mut self, _line: u32) {
+    fn render_mode5(&mut self, line: u32) {
         // Mode 5 bitmap is 160x128, sampled through the BG2 affine matrix.
         let frame_sel: usize = if self.dispcnt & 0x10 != 0 { 0xA000 } else { 0 };
-        let mut cx = self.bg_x_latch[0];
-        let mut cy = self.bg_y_latch[0];
+        let (mos_h, _mvoff, mut cx, mut cy) = self.affine_mosaic_setup(0, line);
         let pa = self.bg_pa[0] as i32;
         let pc = self.bg_pc[0] as i32;
+        let (mut stx, mut sty) = (0i32, 0i32);
         for x in 0..SCREEN_W {
-            let tx = cx >> 8;
-            let ty = cy >> 8;
+            if x as i32 % mos_h == 0 { stx = cx >> 8; sty = cy >> 8; }
             cx = cx.wrapping_add(pa);
             cy = cy.wrapping_add(pc);
-            if tx < 0 || ty < 0 || tx >= 160 || ty >= 128 { continue; }
-            let addr = frame_sel + (ty as usize * 160 + tx as usize) * 2;
+            if stx < 0 || sty < 0 || stx >= 160 || sty >= 128 { continue; }
+            let addr = frame_sel + (sty as usize * 160 + stx as usize) * 2;
             let color = self.vram16(addr) & 0x7FFF;
             self.line_bg[2][x] = color;
             self.bg_drawn[2][x] = true;
