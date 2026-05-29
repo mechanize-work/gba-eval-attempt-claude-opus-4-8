@@ -217,7 +217,14 @@ impl SysBus {
             0x204 => { self.waitcnt = val; self.update_waitstates();
                 #[cfg(feature = "trace")] eprintln!("WAITCNT <- {:04x} @cyc {}", val, self.sched.now); }
             0x208 => self.ime = val & 1 != 0,
-            0x300 => { self.postflg = (val & 1) as u8; if val & 0x8000 != 0 { self.halted = true; } }
+            0x300 => {
+                // POSTFLG(low)/HALTCNT(high). The real HALT path is the 8-bit
+                // write to 0x301 (Halt SWI); games never 16-bit-write here. The
+                // old code halted on the STOP bit, which oracle does NOT do
+                // (verified) — a catastrophic-freeze risk. Just store the bytes.
+                self.postflg = (val & 1) as u8;
+                self.haltcnt = (val >> 8) as u8;
+            }
             0x800 | 0x802 => {
                 if reg == 0x800 {
                     self.memctrl = (self.memctrl & 0xFFFF0000) | val as u32;
