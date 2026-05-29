@@ -105,7 +105,9 @@ impl Save {
         let off = (addr & 0xFFFF) as usize;
         match self.ty {
             SaveType::Sram => {
-                self.data.get(off).copied().unwrap_or(0xFF)
+                // 32 KiB SRAM mirrors through the region (A15 not connected): a
+                // read of 0x0E008000 reads SRAM[0]. Mask to the SRAM size.
+                self.data[off & (self.data.len() - 1)]
             }
             SaveType::Flash64 | SaveType::Flash128 => {
                 if self.id_mode {
@@ -127,9 +129,8 @@ impl Save {
         let off = (addr & 0xFFFF) as usize;
         match self.ty {
             SaveType::Sram => {
-                if off < self.data.len() {
-                    self.data[off] = val;
-                }
+                let i = off & (self.data.len() - 1); // mirror at the SRAM size
+                self.data[i] = val;
             }
             SaveType::Flash64 | SaveType::Flash128 => self.flash_write(off, val),
             _ => {}

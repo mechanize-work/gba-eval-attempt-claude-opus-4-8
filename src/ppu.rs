@@ -288,7 +288,7 @@ impl Ppu {
                 3 => sb += ((quadrant_y * 2 + quadrant_x) as usize) * 0x800,
                 _ => {}
             }
-            let map_idx = sb + ((tile_y * 32 + tile_x) as usize) * 2;
+            let map_idx = (sb + ((tile_y * 32 + tile_x) as usize) * 2) & 0xFFFF; // BG VRAM wraps at 64KB
             if map_idx + 1 >= self.vram.len() {
                 continue;
             }
@@ -303,19 +303,17 @@ impl Ppu {
             if hflip { tx = 7 - tx; }
             if vflip { ty = 7 - ty; }
 
+            // BG tile data wraps within the 64KB BG VRAM (cannot reach the OBJ
+            // region at 0x10000+): char_base 3 + tile 512 reads VRAM[0], not 0x10000.
             let color = if color256 {
-                let addr = char_base + tile_num * 64 + (ty * 8 + tx) as usize;
-                if addr >= self.vram.len() { 0 } else {
-                    let idx = self.vram[addr] as usize;
-                    if idx == 0 { TRANSPARENT } else { self.pal16(idx) }
-                }
+                let addr = (char_base + tile_num * 64 + (ty * 8 + tx) as usize) & 0xFFFF;
+                let idx = self.vram[addr] as usize;
+                if idx == 0 { TRANSPARENT } else { self.pal16(idx) }
             } else {
-                let addr = char_base + tile_num * 32 + (ty * 4 + tx / 2) as usize;
-                if addr >= self.vram.len() { 0 } else {
-                    let byte = self.vram[addr];
-                    let idx = if tx & 1 == 0 { byte & 0xF } else { byte >> 4 } as usize;
-                    if idx == 0 { TRANSPARENT } else { self.pal16(pal_bank * 16 + idx) }
-                }
+                let addr = (char_base + tile_num * 32 + (ty * 4 + tx / 2) as usize) & 0xFFFF;
+                let byte = self.vram[addr];
+                let idx = if tx & 1 == 0 { byte & 0xF } else { byte >> 4 } as usize;
+                if idx == 0 { TRANSPARENT } else { self.pal16(pal_bank * 16 + idx) }
             };
             if color != TRANSPARENT {
                 self.line_bg[bg][sx as usize] = color;
@@ -352,7 +350,7 @@ impl Ppu {
                 }
                 (stx as u32, sty as u32)
             };
-            let map_idx = screen_base + (py / 8 * tiles + px / 8) as usize;
+            let map_idx = (screen_base + (py / 8 * tiles + px / 8) as usize) & 0xFFFF; // BG VRAM wraps at 64KB
             if map_idx >= self.vram.len() { continue; }
             let tile_num = self.vram[map_idx] as usize;
             let addr = char_base + tile_num * 64 + ((py % 8) * 8 + (px % 8)) as usize;
@@ -508,8 +506,11 @@ impl Ppu {
             let hflip = !affine && attr1 & 0x1000 != 0;
             let vflip = !affine && attr1 & 0x2000 != 0;
 
-            // OBJ mosaic samples at mosaic-block-aligned screen coordinates.
-            let mline = if mos_v > 1 { ly - (ly % mos_v) } else { ly };
+            // OBJ mosaic snaps to the mosaic-block-aligned SCREEN grid, but never
+            // before the sprite's top/left edge: a block that starts before the
+            // sprite shows the sprite's first row/column (verified vs oracle),
+            // NOT an out-of-bounds sample.
+            let mline = if mos_v > 1 { (ly - (ly % mos_v)).max(y) } else { ly };
             let iy = mline - y; // 0..bh
             let half_w = bw as i32 / 2;
             let half_h = bh as i32 / 2;
@@ -518,8 +519,9 @@ impl Ppu {
                 let screen_x = x + ix;
                 if screen_x < 0 || screen_x >= SCREEN_W as i32 { continue; }
 
-                // Mosaic-aligned sprite-local x for texture sampling.
-                let ix = if mos_h > 1 { (screen_x - (screen_x % mos_h)) - x } else { ix };
+                // Mosaic-aligned sprite-local x (snapped to the screen grid, but
+                // never before the sprite's left edge).
+                let ix = if mos_h > 1 { (screen_x - (screen_x % mos_h)).max(x) - x } else { ix };
 
                 // Map to texture coordinates.
                 let (tex_x, tex_y);
@@ -559,8 +561,9 @@ impl Ppu {
                     let tn = tile_idx + ty * tile_pitch + tx * 2;
                     // For bitmap modes, obj tiles must be >= 512.
                     if bitmap_mode && tile_idx < 512 { continue; }
-                    let addr = tile_base + tn * 32 + (in_y * 8 + in_x);
-                    if addr >= self.vram.len() { continue; }
+                    // OBJ tile data wraps within the 32 KiB OBJ VRAM (A15 ignored):
+                    // tile 1024 reads tile 0, not out of bounds.
+                    let addr = tile_base + ((tn * 32 + in_y * 8 + in_x) & 0x7FFF);
                     let idx = self.vram[addr] as usize;
                     if idx == 0 { continue; }
                     color = self.pal16(256 + idx);
@@ -568,8 +571,8 @@ impl Ppu {
                     let tile_pitch = if one_dim { tile_w as usize } else { 32 };
                     let tn = tile_idx + ty * tile_pitch + tx;
                     if bitmap_mode && tile_idx < 512 { continue; }
-                    let addr = tile_base + tn * 32 + (in_y * 4 + in_x / 2);
-                    if addr >= self.vram.len() { continue; }
+                    // OBJ tile data wraps within the 32 KiB OBJ VRAM (A15 ignored).
+                    let addr = tile_base + ((tn * 32 + in_y * 4 + in_x / 2) & 0x7FFF);
                     let byte = self.vram[addr];
                     let idx = if in_x & 1 == 0 { byte & 0xF } else { byte >> 4 } as usize;
                     if idx == 0 { continue; }
@@ -680,10 +683,15 @@ impl Ppu {
 
             let mut final_color = top_color;
 
-            // Semi-transparent obj forces alpha blend if second is target2.
+            // A semi-transparent OBJ over a 2nd-target layer ALWAYS alpha-blends,
+            // regardless of BLDCNT's mode AND regardless of the window color-
+            // effect-enable bit (verified vs oracle — objsemiwin_test). When the
+            // layer below is NOT a 2nd target, the semi-OBJ falls through to the
+            // normal BLDCNT effect (e.g. brighten/darken if OBJ is target1), which
+            // IS gated by the window effect bit (semibright_test).
             let obj_semi = top_layer == 4 && self.obj_semi[x];
 
-            if effects_enabled && obj_semi && second_is_target2 {
+            if obj_semi && second_is_target2 {
                 final_color = blend_alpha(top_color, second_color, self.bldalpha);
             } else if effects_enabled && bld_mode == 1 && top_is_target1 && second_is_target2 {
                 final_color = blend_alpha(top_color, second_color, self.bldalpha);
