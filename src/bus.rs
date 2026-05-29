@@ -416,6 +416,25 @@ impl SysBus {
         self.ime && (self.ie & self.if_) != 0
     }
 
+    /// Keypad IRQ (KEYCNT bit14): assert IRQ_KEYPAD while the selected keys
+    /// satisfy the condition (bit15: 1=AND/all, 0=OR/any pressed). Level-style;
+    /// checked when keyinput or KEYCNT changes.
+    pub fn check_keypad_irq(&mut self) {
+        if self.keycnt & 0x4000 == 0 {
+            return;
+        }
+        let mask = self.keycnt & 0x3FF;
+        let pressed = (!self.keyinput) & 0x3FF; // keyinput is active-low
+        let cond = if self.keycnt & 0x8000 != 0 {
+            mask != 0 && (pressed & mask) == mask // AND: all selected keys down
+        } else {
+            (pressed & mask) != 0 // OR: any selected key down
+        };
+        if cond {
+            self.if_ |= IRQ_KEYPAD;
+        }
+    }
+
     // --- Raw memory helpers ----------------------------------------------
     #[inline]
     fn vram_index(addr: u32) -> usize {

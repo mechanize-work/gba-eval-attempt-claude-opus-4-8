@@ -43,6 +43,7 @@ impl Gba {
 
     pub fn set_keys(&mut self, k: u32) {
         self.bus.keyinput = (!k as u16) & 0x03FF;
+        self.bus.check_keypad_irq();
     }
 
     pub fn run_frame(&mut self) {

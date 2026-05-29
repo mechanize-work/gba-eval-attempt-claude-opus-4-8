@@ -211,7 +211,7 @@ impl SysBus {
             0x10C => self.timers.t[3].reload = val,
             0x10E => self.timer_control_write(3, val),
             0x130 => {} // KEYINPUT read-only
-            0x132 => self.keycnt = val,
+            0x132 => { self.keycnt = val; self.check_keypad_irq(); }
             0x200 => self.ie = val,
             0x202 => self.if_ &= !val, // writing 1 acks
             0x204 => { self.waitcnt = val; self.update_waitstates();
