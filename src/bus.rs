@@ -368,8 +368,12 @@ impl SysBus {
                     if self.dma.ch[3].enabled() && self.dma.ch[3].timing() == 3 {
                         self.dma.ch[3].control &= !0x8000;
                     }
-                } else if new_line == 0 {
+                } else if new_line == ppu::TOTAL_LINES as u16 - 1 {
+                    // VBlank flag clears on the LAST VBlank line (227), NOT at
+                    // line 0 — the flag reads as set only in lines 160..=226
+                    // (GBATEK). A game polling DISPSTAT bit0 on line 227 sees 0.
                     self.ppu.dispstat &= !0x1;
+                } else if new_line == 0 {
                     self.frame_complete = true;
                     self.ppu.latch_affine_frame();
                 }

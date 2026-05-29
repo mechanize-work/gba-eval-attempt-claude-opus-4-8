@@ -48,6 +48,7 @@ impl SysBus {
                 (a.noise.divisor as u16)
                     | ((a.noise.width7 as u16) << 3)
                     | ((a.noise.shift as u16) << 4)
+                    | ((a.noise.length_enable as u16) << 14)
             }
             0x084 => {
                 let mut v = (a.master_enable as u16) << 7;

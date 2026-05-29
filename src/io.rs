@@ -37,6 +37,10 @@ impl SysBus {
             0x074 => self.sound_read(0x074),
             0x078 => self.sound_read(0x078),
             0x07C => self.sound_read(0x07C),
+            // Unused gaps within the PSG register block read as 0 (not open bus).
+            // Plus the unused upper halves of 32-bit register slots (matters for
+            // 32-bit reads of SOUNDCNT_X/SOUNDBIAS/WAITCNT/IME): 0x86,0x8A,0x206,0x20A.
+            0x066 | 0x06A | 0x06E | 0x076 | 0x07A | 0x07E | 0x086 | 0x08A => 0,
             // SOUNDCNT_L is in the 0x60-0x81 master-gated range: reads 0 while off.
             0x080 => if self.apu.master_enable { self.apu.soundcnt_l } else { 0 },
             0x082 => self.apu.soundcnt_h,
@@ -83,7 +87,9 @@ impl SysBus {
             0x200 => self.ie,
             0x202 => self.if_,
             0x204 => self.waitcnt,
+            0x206 => 0, // unused upper half of the WAITCNT 32-bit slot
             0x208 => self.ime as u16,
+            0x20A => 0, // unused upper half of the IME 32-bit slot
             0x300 => self.postflg as u16,
             _ => (self.open_bus >> ((addr & 2) * 8)) as u16,
         }
@@ -120,7 +126,7 @@ impl SysBus {
     pub fn io_write16(&mut self, addr: u32, val: u16) {
         let reg = addr & 0xFFFF;
         match reg {
-            0x000 => self.ppu.dispcnt = val,
+            0x000 => self.ppu.dispcnt = val & 0xFFF7, // bit3 = CGB mode, read-only (always 0 on GBA)
             0x002 => self.ppu.green_swap = val,
             0x004 => {
                 // Only bits 3-5 (IRQ enables) and 8-15 (vcount) are writable.
@@ -168,7 +174,7 @@ impl SysBus {
             // Sound channel registers.
             0x060 | 0x062 | 0x064 | 0x066 | 0x068 | 0x06C
             | 0x070 | 0x072 | 0x074 | 0x078 | 0x07C => self.sound_write(reg, val),
-            0x080 => { if self.apu.master_enable { self.apu.soundcnt_l = val; } }
+            0x080 => { if self.apu.master_enable { self.apu.soundcnt_l = val & 0xFF77; } } // bits 3,7 unused
             0x082 => self.sound_write(0x082, val),
             0x084 => self.sound_write(0x084, val),
             0x088 => self.apu.soundbias = val,
@@ -253,7 +259,7 @@ impl SysBus {
             0x158 => self.joystat = val,
             0x200 => self.ie = val,
             0x202 => self.if_ &= !val, // writing 1 acks
-            0x204 => { self.waitcnt = val; self.update_waitstates();
+            0x204 => { self.waitcnt = val & 0x7FFF; self.update_waitstates(); // bit15 = gamepak type, read-only (0 on GBA)
                 #[cfg(feature = "trace")] eprintln!("WAITCNT <- {:04x} @cyc {}", val, self.sched.now); }
             0x208 => self.ime = val & 1 != 0,
             0x300 => {
@@ -279,7 +285,10 @@ impl SysBus {
 
     fn dma_control_write(&mut self, ch: usize, val: u16) {
         let was_enabled = self.dma.ch[ch].enabled();
-        self.dma.ch[ch].control = val;
+        // Mask unused control bits (read back as 0): bits 0-4 unused on all
+        // channels; bit 11 (Game Pak DRQ) is DMA3-only.
+        let mask: u16 = if ch == 3 { 0xFFE0 } else { 0xF7E0 };
+        self.dma.ch[ch].control = val & mask;
         let now_enabled = self.dma.ch[ch].enabled();
         if now_enabled && !was_enabled {
             // Latch src/dst/count.
@@ -310,7 +319,7 @@ impl SysBus {
             t.counter = t.reload;
             t.prescaler_cycles = 0;
         }
-        t.control = val;
+        t.control = val & 0xC7; // bits 3-5 unused, read back as 0
         #[cfg(feature = "trace")]
         if now_enabled {
             eprintln!("TIMER{} reload={:04x} ctrl={:04x} prescale={} cascade={} irq={} @cyc {}",
