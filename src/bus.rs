@@ -175,11 +175,15 @@ impl SysBus {
         // from the buffer at 1 cycle.
         let prefetch = w & 0x4000 != 0;
         self.sram_wait = 1 + REGION_TIMINGS_NSEQ[(w & 0x3) as usize];
-        let ws0_n = 1 + REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
+        // Non-sequential (branch target) access: full 1+waitstate when running
+        // without prefetch; with the buffer enabled the target is often already
+        // buffered, so we use the lower (GBATEK-literal) cost.
+        let np1 = |raw: u32| if prefetch { raw } else { 1 + raw };
+        let ws0_n = np1(REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize]);
         let ws0_s = if prefetch { 1 } else { 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 } };
-        let ws1_n = 1 + REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
+        let ws1_n = np1(REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize]);
         let ws1_s = if prefetch { 1 } else { 1 + if (w >> 7) & 1 == 1 { 1 } else { 4 } };
-        let ws2_n = 1 + REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
+        let ws2_n = np1(REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize]);
         let ws2_s = if prefetch { 1 } else { 1 + if (w >> 10) & 1 == 1 { 1 } else { 8 } };
 
         for r in 0..16 {

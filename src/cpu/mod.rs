@@ -217,12 +217,11 @@ impl Cpu {
                 self.r[15] = pc.wrapping_add(2);
             }
         } else {
-            // ARM: eager prefetch — the discarded 32-bit prefetch on a taken
-            // branch is charged (matches oracle on ARM-from-ROM tight loops).
-            let pc = self.r[15] & !3;
-            self.pipe[1] = bus.read32(pc, Access::Seq);
+            // ARM: deferred prefetch (experiment with +1 waitstate model).
             arm::execute(self, bus, opcode);
             if !self.branched {
+                let pc = self.r[15] & !3;
+                self.pipe[1] = bus.read32(pc, Access::Seq);
                 self.r[15] = pc.wrapping_add(4);
             }
         }
