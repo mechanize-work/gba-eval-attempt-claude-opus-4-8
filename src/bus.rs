@@ -162,8 +162,12 @@ impl SysBus {
         let v = (self.memctrl >> 24) & 0xF;
         let waits = if v >= 15 { 15 } else { 15 - v };
         self.ewram_c16 = 1 + waits;
-        // oracle charges EWRAM 32-bit at the single-access cost, not doubled
-        // (confirmed by STM calib AND meteorain — doubling regresses it to 100%).
+        // EWRAM 32-bit is HW-correctly 2x the 16-bit cost (16-bit bus), BUT mine's
+        // ROM-fetch/prefetch model runs slightly fast in the opposite direction, so
+        // keeping ewram_c32 at the single cost best balances overall frame timing vs
+        // oracle. Verified 2026-05-29: doubling fixes a single-STR-EWRAM calib (DS
+        // buffer-fill offset 84->60) but REGRESSES xniq 1.30%->1.54% (and prior
+        // sessions: meteorain). Net-negative until the prefetch model is exact.
         self.ewram_c32 = 1 + waits;
         // If EWRAM disabled (bit0) we leave timings; edge case ignored.
     }
