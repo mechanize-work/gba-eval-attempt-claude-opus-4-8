@@ -284,6 +284,17 @@ impl Apu {
             } else if c.sweep_shift > 0 {
                 c.sweep_shadow = new;
                 c.freq = new;
+                // Hardware performs the overflow calculation a second time with the
+                // updated shadow register; this disables the channel one period earlier.
+                let delta2 = c.sweep_shadow >> c.sweep_shift;
+                let new2 = if c.sweep_dir {
+                    c.sweep_shadow.wrapping_sub(delta2)
+                } else {
+                    c.sweep_shadow.wrapping_add(delta2)
+                };
+                if new2 > 2047 {
+                    c.enabled = false;
+                }
             }
         }
     }
