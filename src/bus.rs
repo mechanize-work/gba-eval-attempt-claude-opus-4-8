@@ -170,14 +170,17 @@ impl SysBus {
 
     pub(crate) fn update_waitstates(&mut self) {
         let w = self.waitcnt;
+        // Access cycles = 1 + waitstate (hardware-accurate). When the game-pak
+        // prefetch buffer is enabled (bit 14), sequential ROM fetches are served
+        // from the buffer at 1 cycle.
+        let prefetch = w & 0x4000 != 0;
         self.sram_wait = 1 + REGION_TIMINGS_NSEQ[(w & 0x3) as usize];
-        // GBATEK lists these as total cycle counts. N: {4,3,2,8}; S per region.
-        let ws0_n = REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
-        let ws0_s = if (w >> 4) & 1 == 1 { 1 } else { 2 };
-        let ws1_n = REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
-        let ws1_s = if (w >> 7) & 1 == 1 { 1 } else { 4 };
-        let ws2_n = REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
-        let ws2_s = if (w >> 10) & 1 == 1 { 1 } else { 8 };
+        let ws0_n = 1 + REGION_TIMINGS_NSEQ[((w >> 2) & 0x3) as usize];
+        let ws0_s = if prefetch { 1 } else { 1 + if (w >> 4) & 1 == 1 { 1 } else { 2 } };
+        let ws1_n = 1 + REGION_TIMINGS_NSEQ[((w >> 5) & 0x3) as usize];
+        let ws1_s = if prefetch { 1 } else { 1 + if (w >> 7) & 1 == 1 { 1 } else { 4 } };
+        let ws2_n = 1 + REGION_TIMINGS_NSEQ[((w >> 8) & 0x3) as usize];
+        let ws2_s = if prefetch { 1 } else { 1 + if (w >> 10) & 1 == 1 { 1 } else { 8 } };
 
         for r in 0..16 {
             let (n, s) = match r {
