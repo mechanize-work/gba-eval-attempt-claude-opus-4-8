@@ -67,6 +67,19 @@ impl SysBus {
                 self.keyinput
             }
             0x132 => self.keycnt,
+            0x120 => self.sio_data[0],
+            0x122 => self.sio_data[1],
+            0x124 => self.sio_data[2],
+            0x126 => self.sio_data[3],
+            0x128 => self.siocnt,
+            0x12A => self.sio_send,
+            0x134 => self.rcnt,
+            0x140 => self.joycnt,
+            0x150 => self.joy_recv[0],
+            0x152 => self.joy_recv[1],
+            0x154 => self.joy_trans[0],
+            0x156 => self.joy_trans[1],
+            0x158 => self.joystat,
             0x200 => self.ie,
             0x202 => self.if_,
             0x204 => self.waitcnt,
@@ -212,6 +225,32 @@ impl SysBus {
             0x10E => self.timer_control_write(3, val),
             0x130 => {} // KEYINPUT read-only
             0x132 => { self.keycnt = val; self.check_keypad_irq(); }
+            0x120 => self.sio_data[0] = val,
+            0x122 => self.sio_data[1] = val,
+            0x124 => self.sio_data[2] = val,
+            0x126 => self.sio_data[3] = val,
+            0x128 => {
+                self.siocnt = val & 0x7FFF; // bit15 unused
+                // Start an internal-clock transfer in a serial (non-GPIO/JOYBUS)
+                // mode: the GBA self-clocks, so it completes regardless of a
+                // partner. The start/busy bit stays set until step_sio expires
+                // it (matches oracle: immediate read sees bit7, delayed sees 0).
+                if val & 0x80 != 0 && val & 0x01 != 0 && self.rcnt & 0xC000 == 0 {
+                    let bits = if val & 0x1000 != 0 { 32 } else { 8 };
+                    let cyc_per_bit = if val & 0x2 != 0 { 8 } else { 64 };
+                    self.sio_transfer = bits * cyc_per_bit;
+                }
+            }
+            0x12A => self.sio_send = val,
+            0x134 => self.rcnt = val & 0xC1FF,   // bits 0-8 + mode bits 14-15
+            // JOYBUS: store best-effort (only the read defaults are verified vs
+            // oracle; games never write these, so exact write masks are moot).
+            0x140 => self.joycnt = val,
+            0x150 => self.joy_recv[0] = val,
+            0x152 => self.joy_recv[1] = val,
+            0x154 => self.joy_trans[0] = val,
+            0x156 => self.joy_trans[1] = val,
+            0x158 => self.joystat = val,
             0x200 => self.ie = val,
             0x202 => self.if_ &= !val, // writing 1 acks
             0x204 => { self.waitcnt = val; self.update_waitstates();

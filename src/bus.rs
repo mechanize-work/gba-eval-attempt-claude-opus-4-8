@@ -16,6 +16,7 @@ const BIOS_OPEN_BUS: u32 = 0xE129F000;
 pub const IRQ_VBLANK: u16 = 1 << 0;
 pub const IRQ_HBLANK: u16 = 1 << 1;
 pub const IRQ_VCOUNT: u16 = 1 << 2;
+pub const IRQ_SERIAL: u16 = 1 << 7;
 pub const IRQ_TIMER0: u16 = 1 << 3;
 pub const IRQ_DMA0: u16 = 1 << 8;
 pub const IRQ_KEYPAD: u16 = 1 << 12;
@@ -41,6 +42,21 @@ pub struct SysBus {
 
     pub keyinput: u16, // active-low (1 = released)
     pub keycnt: u16,
+
+    // Serial / SIO. Not a full link model (no partner exists), but games read
+    // these at boot (mode/RNG/multiboot detection); store them so reads match
+    // the reference instead of leaking open bus.
+    pub siocnt: u16,
+    pub rcnt: u16,
+    pub sio_transfer: i32, // cycles left on an in-progress internal-clock transfer (0 = idle)
+    pub sio_data: [u16; 4], // SIODATA32 / SIOMULTI0-3 (0x120-0x126)
+    pub sio_send: u16,      // SIODATA8 / SIOMLT_SEND (0x12A)
+    // JOYBUS (GameCube link). Unused by normal games but oracle returns fixed
+    // defaults (JOYCNT/JOY_RECV/JOY_TRANS=0, JOYSTAT=0x3000); store to match.
+    pub joycnt: u16,
+    pub joy_recv: [u16; 2], // 0x150/0x152 (32-bit JOY_RECV)
+    pub joy_trans: [u16; 2], // 0x154/0x156 (32-bit JOY_TRANS)
+    pub joystat: u16,        // 0x158
 
     pub waitcnt: u16,
     pub memctrl: u32,
@@ -98,6 +114,15 @@ impl SysBus {
             ime: false,
             keyinput: 0x03FF,
             keycnt: 0,
+            siocnt: 0,
+            rcnt: 0,
+            sio_transfer: 0,
+            sio_data: [0; 4],
+            sio_send: 0,
+            joycnt: 0,
+            joy_recv: [0; 2],
+            joy_trans: [0; 2],
+            joystat: 0x3000,
             waitcnt: 0,
             memctrl: 0x0D00_0020,
             ewram_c16: 3,
@@ -151,6 +176,15 @@ impl SysBus {
         self.ime = false;
         self.keyinput = 0x03FF;
         self.keycnt = 0;
+        self.siocnt = 0;
+        self.rcnt = 0;
+        self.sio_transfer = 0;
+        self.sio_data = [0; 4];
+        self.sio_send = 0;
+        self.joycnt = 0;
+        self.joy_recv = [0; 2];
+        self.joy_trans = [0; 2];
+        self.joystat = 0x3000;
         self.waitcnt = 0;
         self.memctrl = 0x0D00_0020;
         self.postflg = 1; // BIOS sets POSTFLG=1 during boot
@@ -262,7 +296,24 @@ impl SysBus {
         if self.timers.any_enabled {
             self.step_timers(cycles);
         }
+        if self.sio_transfer > 0 {
+            self.step_sio(cycles);
+        }
         self.apu.step(cycles);
+    }
+
+    /// Advance an in-progress internal-clock serial transfer. The GBA generates
+    /// its own clock, so the transfer completes with or without a link partner:
+    /// the start/busy bit (SIOCNT bit7) clears and the serial IRQ fires.
+    fn step_sio(&mut self, cycles: u32) {
+        self.sio_transfer -= cycles as i32;
+        if self.sio_transfer <= 0 {
+            self.sio_transfer = 0;
+            self.siocnt &= !0x0080; // clear start/busy
+            if self.siocnt & 0x4000 != 0 {
+                self.if_ |= IRQ_SERIAL;
+            }
+        }
     }
 
     // --- PPU stepping -----------------------------------------------------
