@@ -202,17 +202,22 @@ impl SysBus {
         match region {
             0x0 | 0x3 | 0x4 | 0x7 => 1, // BIOS, IWRAM, IO, OAM
             0x2 => {
-                // EWRAM: sequential accesses (e.g. within LDM/STM bursts) are
-                // cheaper, matching the oracle's block-transfer timing.
+                // EWRAM: the first access pays full cost; sequential accesses
+                // within an LDM/STM burst are cheap (matches oracle block timing).
                 let base = if width == 4 { self.ewram_c32 } else { self.ewram_c16 };
                 match access {
-                    Access::Seq if base > 2 => base - 1,
+                    Access::Seq => 1,
                     _ => base,
                 }
             }
             0x5 | 0x6 => {
-                // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles.
-                if width == 4 { 2 } else { 1 }
+                // Palette / VRAM: 16-bit 1 cycle, 32-bit 2 cycles. During active
+                // display the PPU contends for these memories, inserting +1 cycle.
+                let base = if width == 4 { 2 } else { 1 };
+                let active = self.ppu.vcount < 160
+                    && self.ppu.dot < 1006
+                    && (self.ppu.dispcnt & 0x80) == 0;
+                base + active as u32
             }
             0x8..=0xF => {
                 if width == 4 {

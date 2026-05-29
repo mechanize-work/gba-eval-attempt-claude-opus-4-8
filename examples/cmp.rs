@@ -69,7 +69,7 @@ fn main() {
             let path = format!("{}/frame_{:05}.ppm", outdir, f);
             dump_ppm(&path, fb);
         }
-        if std::env::var("PPU").is_ok() && f+1==frames {
+        if std::env::var("PPU").is_ok() && (f==199 || f+1==frames) {
             let q=gba_emu::debug_ppu();
             eprintln!("PPU dispcnt={:04x} bldcnt={:04x} bldalpha={:04x} bldy={:04x} winin={:04x} winout={:04x} winh0={:04x} winv0={:04x} bg0c={:04x} bg1c={:04x} bg2c={:04x} bg3c={:04x}",q[0],q[1],q[2],q[3],q[4],q[5],q[6],q[7],q[8],q[9],q[10],q[11]);
             let r=gba_emu::debug_ppu2();

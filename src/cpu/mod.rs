@@ -23,14 +23,6 @@ pub trait Bus {
     fn idle(&mut self, cycles: u32);
     /// True if an enabled+requested IRQ is pending (IE & IF & IME).
     fn irq_pending(&self) -> bool;
-    /// Extra cycles for the pipeline's "wasted" sequential prefetch that is
-    /// discarded on a taken branch. Returns 0 when the game-pak prefetch buffer
-    /// would have absorbed it (ROM code with WAITCNT prefetch enabled); else the
-    /// sequential fetch cost for that address. `width` is the opcode size.
-    fn branch_refetch_penalty(&self, addr: u32, width: u32) -> u32 {
-        let _ = (addr, width);
-        0
-    }
 }
 
 // CPU operating modes (CPSR[4:0]).
@@ -80,9 +72,6 @@ pub struct Cpu {
     pub pipe: [u32; 2],
     /// Set true by flush_pipeline so step() knows not to auto-advance r15.
     pub branched: bool,
-    /// Set by stores so the following opcode prefetch is non-sequential (ARM7:
-    /// STR/STM end with the next fetch as an N-cycle).
-    pub fetch_nonseq: bool,
 
     pub halted: bool,
 }
@@ -97,7 +86,6 @@ impl Cpu {
             spsr: [0; 6],
             pipe: [0; 2],
             branched: false,
-            fetch_nonseq: false,
             halted: false,
         };
         c.reset();

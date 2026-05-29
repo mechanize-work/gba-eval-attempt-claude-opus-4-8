@@ -417,7 +417,11 @@ impl Ppu {
 
             let gfx_mode = (attr0 >> 10) & 0x3; // 0 normal,1 semi,2 window,3 forbidden
             let mosaic = attr0 & 0x1000 != 0;
-            let _ = mosaic;
+            let (mos_h, mos_v) = if mosaic {
+                (((self.mosaic >> 8) & 0xF) as i32 + 1, ((self.mosaic >> 12) & 0xF) as i32 + 1)
+            } else {
+                (1, 1)
+            };
             let color256 = attr0 & 0x2000 != 0;
             let shape = (attr0 >> 14) & 0x3;
             let size = (attr1 >> 14) & 0x3;
@@ -453,13 +457,18 @@ impl Ppu {
             let hflip = !affine && attr1 & 0x1000 != 0;
             let vflip = !affine && attr1 & 0x2000 != 0;
 
-            let iy = ly - y; // 0..bh
+            // OBJ mosaic samples at mosaic-block-aligned screen coordinates.
+            let mline = if mos_v > 1 { ly - (ly % mos_v) } else { ly };
+            let iy = mline - y; // 0..bh
             let half_w = bw as i32 / 2;
             let half_h = bh as i32 / 2;
 
             for ix in 0..bw as i32 {
                 let screen_x = x + ix;
                 if screen_x < 0 || screen_x >= SCREEN_W as i32 { continue; }
+
+                // Mosaic-aligned sprite-local x for texture sampling.
+                let ix = if mos_h > 1 { (screen_x - (screen_x % mos_h)) - x } else { ix };
 
                 // Map to texture coordinates.
                 let (tex_x, tex_y);
@@ -630,6 +639,21 @@ impl Ppu {
             }
 
             self.frame[off + x] = Self::to_rgba(final_color);
+        }
+
+        // Green Swap (GREENSWAP reg bit 0): exchange the green component of each
+        // pair of horizontally-adjacent pixels.
+        if self.green_swap & 1 != 0 {
+            let mut x = 0;
+            while x + 1 < SCREEN_W {
+                let a = self.frame[off + x];
+                let b = self.frame[off + x + 1];
+                let ga = a & 0x0000_FF00;
+                let gb = b & 0x0000_FF00;
+                self.frame[off + x] = (a & !0x0000_FF00) | gb;
+                self.frame[off + x + 1] = (b & !0x0000_FF00) | ga;
+                x += 2;
+            }
         }
     }
 }
