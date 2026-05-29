@@ -8,6 +8,10 @@ use crate::save::{Save, SaveType};
 use crate::sched::Sched;
 use crate::timer::Timers;
 
+// Value returned when the BIOS region is read from outside the BIOS (read
+// protection). This is the standard GBA post-boot/SWI-dispatcher bus value.
+const BIOS_OPEN_BUS: u32 = 0xE129F000;
+
 // Interrupt bit positions.
 pub const IRQ_VBLANK: u16 = 1 << 0;
 pub const IRQ_HBLANK: u16 = 1 << 1;
@@ -51,6 +55,9 @@ pub struct SysBus {
     // Open bus / last fetched value.
     pub open_bus: u32,
     pub last_bios: u32,
+    // True while the CPU is executing inside the BIOS region (PC < 0x4000).
+    // BIOS data reads from OUTSIDE the BIOS return open bus, not the real bytes.
+    pub exec_in_bios: bool,
 
     // DMA scheduling: bitmask of channels that should run now.
     pub dma_pending: u8,
@@ -101,6 +108,7 @@ impl SysBus {
             frame_complete: false,
             open_bus: 0,
             last_bios: 0,
+            exec_in_bios: true,
             dma_pending: 0,
             fifo_a_request: false,
             fifo_b_request: false,
@@ -424,7 +432,11 @@ impl SysBus {
         match region {
             0x0 => {
                 if addr < 0x4000 {
-                    self.bios[addr as usize]
+                    if self.exec_in_bios {
+                        self.bios[addr as usize]
+                    } else {
+                        (BIOS_OPEN_BUS >> ((addr & 3) * 8)) as u8
+                    }
                 } else {
                     (self.open_bus >> ((addr & 3) * 8)) as u8
                 }
@@ -451,7 +463,13 @@ impl SysBus {
         match region {
             0x0 => {
                 if addr < 0x4000 {
-                    u16::from_le_bytes([self.bios[addr as usize], self.bios[addr as usize + 1]])
+                    if self.exec_in_bios {
+                        u16::from_le_bytes([self.bios[addr as usize], self.bios[addr as usize + 1]])
+                    } else {
+                        // BIOS is read-protected from outside: returns open bus
+                        // (the standard post-boot/SWI BIOS bus value 0xE129F000).
+                        (BIOS_OPEN_BUS >> ((addr & 2) * 8)) as u16
+                    }
                 } else {
                     (self.open_bus >> ((addr & 2) * 8)) as u16
                 }

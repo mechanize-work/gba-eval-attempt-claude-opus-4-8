@@ -23,6 +23,9 @@ pub trait Bus {
     fn idle(&mut self, cycles: u32);
     /// True if an enabled+requested IRQ is pending (IE & IF & IME).
     fn irq_pending(&self) -> bool;
+    /// Notify the bus whether the CPU is currently executing inside the BIOS
+    /// region. Used for BIOS read protection (reads from outside return open bus).
+    fn set_exec_in_bios(&mut self, _in_bios: bool) {}
 }
 
 // CPU operating modes (CPSR[4:0]).
@@ -204,6 +207,8 @@ impl Cpu {
     /// Execute one instruction (pipeline must be primed). During execution
     /// r[15] reads as instruction_addr + 2*size (PC+8 ARM / PC+4 Thumb).
     pub fn step<B: Bus>(&mut self, bus: &mut B) {
+        // BIOS read protection: track whether execution is inside the BIOS.
+        bus.set_exec_in_bios(self.r[15] < 0x4000);
         let opcode = self.pipe[0];
         self.pipe[0] = self.pipe[1];
         self.branched = false;
