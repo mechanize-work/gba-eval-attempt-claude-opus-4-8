@@ -102,7 +102,7 @@ impl SysBus {
             memctrl: 0x0D00_0020,
             ewram_c16: 3,
             ewram_c32: 6,
-            postflg: 0,
+            postflg: 1, // BIOS sets POSTFLG=1 during boot; reflect post-boot state
             haltcnt: 0,
             halted: false,
             frame_complete: false,
@@ -153,7 +153,7 @@ impl SysBus {
         self.keycnt = 0;
         self.waitcnt = 0;
         self.memctrl = 0x0D00_0020;
-        self.postflg = 0;
+        self.postflg = 1; // BIOS sets POSTFLG=1 during boot
         self.haltcnt = 0;
         self.halted = false;
         self.frame_complete = false;
@@ -404,7 +404,10 @@ impl SysBus {
     }
     fn trigger_dma_hblank(&mut self) {
         for i in 0..4 {
-            if self.dma.ch[i].enabled() && self.dma.ch[i].timing() == 2 {
+            let t = self.dma.ch[i].timing();
+            // DMA3 "special" timing = Video Capture: one transfer per visible
+            // scanline, triggered at HBlank (like HBlank DMA).
+            if self.dma.ch[i].enabled() && (t == 2 || (i == 3 && t == 3)) {
                 self.dma_pending |= 1 << i;
             }
         }
