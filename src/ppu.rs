@@ -443,6 +443,11 @@ impl Ppu {
         let bitmap_mode = (self.dispcnt & 0x7) >= 3;
         let tile_base = 0x10000usize;
 
+        // Per-scanline OBJ rendering cycle budget. Sprites are processed in OAM
+        // order; once the budget is exhausted the remaining sprites are dropped.
+        // 1210 cycles normally, 954 when HBlank-interval-free (DISPCNT bit 5).
+        let mut obj_budget: i32 = if self.dispcnt & 0x20 != 0 { 954 } else { 1210 };
+
         for i in 0..128 {
             let oam_off = i * 8;
             let attr0 = u16::from_le_bytes([self.oam[oam_off], self.oam[oam_off + 1]]);
@@ -475,6 +480,11 @@ impl Ppu {
 
             let ly = line as i32;
             if ly < y || ly >= y + bh as i32 { continue; }
+
+            // OBJ cycle budget: each in-range sprite costs its rendered width
+            // (affine: 2*width + 10). Once exhausted, drop the rest (OAM order).
+            if obj_budget <= 0 { break; }
+            obj_budget -= if affine { 2 * bw as i32 + 10 } else { bw as i32 };
 
             let priority = ((attr2 >> 10) & 0x3) as u8;
             let pal_bank = ((attr2 >> 12) & 0xF) as usize;

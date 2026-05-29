@@ -40,7 +40,8 @@ impl SysBus {
             0x080 => self.apu.soundcnt_l,
             0x082 => self.apu.soundcnt_h,
             0x084 => self.sound_read(0x084),
-            0x088 => self.apu.soundbias,
+            // Bits 0,10-13 unused (read 0); bits 1-9 bias, 14-15 resolution.
+            0x088 => self.apu.soundbias & 0xC3FE,
             0x090..=0x09F => {
                 let i = (reg - 0x090) as usize;
                 let b = self.apu.wave_access_bank() * 16;

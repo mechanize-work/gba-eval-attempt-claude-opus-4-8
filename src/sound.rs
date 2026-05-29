@@ -74,6 +74,8 @@ impl SysBus {
                 c.env_period = ((val >> 8) & 0x7) as u8;
                 c.env_dir = val & 0x800 != 0;
                 c.env_initial = ((val >> 12) & 0xF) as u8;
+                // DAC off (vol 0 + decrease) immediately disables the channel.
+                if c.env_initial == 0 && !c.env_dir { c.enabled = false; }
             }
             0x064 => {
                 let c = &mut self.apu.ch1;
@@ -91,6 +93,7 @@ impl SysBus {
                 c.env_period = ((val >> 8) & 0x7) as u8;
                 c.env_dir = val & 0x800 != 0;
                 c.env_initial = ((val >> 12) & 0xF) as u8;
+                if c.env_initial == 0 && !c.env_dir { c.enabled = false; }
             }
             0x06C => {
                 let c = &mut self.apu.ch2;
@@ -129,6 +132,7 @@ impl SysBus {
                 n.env_period = ((val >> 8) & 0x7) as u8;
                 n.env_dir = val & 0x800 != 0;
                 n.env_initial = ((val >> 12) & 0xF) as u8;
+                if n.env_initial == 0 && !n.env_dir { n.enabled = false; }
             }
             0x07C => {
                 let n = &mut self.apu.noise;
@@ -157,7 +161,8 @@ impl SysBus {
 
     fn trigger_square1(a: &mut crate::apu::Apu) {
         let c = &mut a.ch1;
-        c.enabled = true;
+        // Trigger only enables the channel if the DAC is on (vol != 0 or increase).
+        c.enabled = c.env_initial != 0 || c.env_dir;
         if c.length_counter == 0 { c.length_counter = 64; }
         c.env_vol = c.env_initial;
         c.env_timer = c.env_period;
@@ -169,7 +174,7 @@ impl SysBus {
     }
     fn trigger_square2(a: &mut crate::apu::Apu) {
         let c = &mut a.ch2;
-        c.enabled = true;
+        c.enabled = c.env_initial != 0 || c.env_dir;
         if c.length_counter == 0 { c.length_counter = 64; }
         c.env_vol = c.env_initial;
         c.env_timer = c.env_period;
@@ -177,7 +182,7 @@ impl SysBus {
     }
     fn trigger_noise(a: &mut crate::apu::Apu) {
         let n = &mut a.noise;
-        n.enabled = true;
+        n.enabled = n.env_initial != 0 || n.env_dir;
         if n.length_counter == 0 { n.length_counter = 64; }
         n.env_vol = n.env_initial;
         n.env_timer = n.env_period;
