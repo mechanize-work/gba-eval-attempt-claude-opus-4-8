@@ -332,7 +332,10 @@ impl Apu {
     fn tick_noise_timer(&mut self, cycles: u32) {
         let n = &mut self.noise;
         if !n.enabled { return; }
-        let div = if n.divisor == 0 { 8 } else { (n.divisor as i32) * 16 };
+        // GBA cycles per LFSR step = 32*r*2^(s+1) with r=0.5 when divisor=0.
+        // (The 16.78 MHz GBA clock is 4x the Game Boy's, so the base is 32/64*d,
+        // not the Game Boy's 8/16*d.)
+        let div = if n.divisor == 0 { 32 } else { (n.divisor as i32) * 64 };
         let period = (div << n.shift).max(1);
         n.timer -= cycles as i32;
         while n.timer <= 0 {
@@ -359,12 +362,13 @@ impl Apu {
         } else { 0 };
         let wave = if self.wave.enabled && self.wave.dac_on {
             let centered = self.wave.sample as i32 - 8; // -8..7
-            let v = if self.wave.force_vol {
+            // Wave amplitude is half the square's swing (a 4-bit sample centred
+            // at 0, not doubled to match ±env_vol).
+            if self.wave.force_vol {
                 (centered * 3) / 4
             } else {
                 match self.wave.volume { 1 => centered, 2 => centered / 2, 3 => centered / 4, _ => 0 }
-            };
-            v * 2
+            }
         } else { 0 };
         let noise = if self.noise.enabled {
             (2 * self.noise.sample as i32 - 1) * self.noise.env_vol as i32
