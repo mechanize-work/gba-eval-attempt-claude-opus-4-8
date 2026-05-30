@@ -8,10 +8,10 @@ main:
     ldr r1, =0x02000000
     ldr r0, =0x12345678
     str r0, [r1]
-    add r1, r1, #2           @ unaligned addr 0x02000002
-    ldr r0, [r1]            @ ARM7: word@0x02000000 ror 16 = 0x56781234
+    add r1, r1, #1           @ odd addr 0x02000001
+    ldrh r0, [r1]           @ ARM7: (halfword@0x02000000=0x5678) ror 8 = 0x78000056
     ldr r2, =0x7FFF
-    and r3, r0, r2          @ 0x56781234 & 0x7FFF = 0x1234
+    and r3, r0, r2          @ 0x78000056 & 0x7FFF = 0x0056
     ldr r1, =0x05000000
     strh r3, [r1]
     ldr r2, =0x04000000

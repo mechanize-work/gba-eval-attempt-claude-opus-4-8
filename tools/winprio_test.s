@@ -6,7 +6,7 @@ _start:
     .space 0xC0 - 4
 main:
     ldr r1, =0x05000000
-    ldr r2, =0x7C00          @ backdrop blue
+    ldr r2, =0x001F          @ backdrop red
     strh r2, [r1]
     ldr r2, =0x03E0          @ idx1 green
     strh r2, [r1, #2]
@@ -26,24 +26,24 @@ mf: str r1, [r0], #4
     blt mf
     ldr r2, =0x04000008
     ldr r1, =0x0100
-    strh r1, [r2]            @ BG0CNT
-    ldr r2, =0x04000050
-    ldr r1, =0x2041          @ BLDCNT BG0 1st + alpha + backdrop 2nd(0x2000)
     strh r1, [r2]
-    ldr r1, =0x0808          @ EVA=8 EVB=8
-    strh r1, [r2, #2]
+    @ WIN0H = 0..160, WIN1H = 80..240 (overlap 80-159)
     ldr r2, =0x04000040
-    ldr r1, =0x0078          @ WIN0H X1=0 X2=120
-    strh r1, [r2]
+    ldr r1, =0x00A0
+    strh r1, [r2]            @ WIN0H
+    ldr r1, =0x50F0
+    strh r1, [r2, #2]        @ WIN1H X1=80 X2=240
     ldr r1, =0x00A0
     strh r1, [r2, #4]        @ WIN0V
+    strh r1, [r2, #6]        @ WIN1V
+    @ WININ: WIN0=BG0(0x01), WIN1=nothing(0x00)
     ldr r2, =0x04000048
-    ldr r1, =0x0021          @ WININ BG0+effects
+    ldr r1, =0x0001
     strh r1, [r2]
-    ldr r1, =0x0001          @ WINOUT BG0 only (no effects)
-    strh r1, [r2, #2]
+    mov r1, #0
+    strh r1, [r2, #2]        @ WINOUT=0
     ldr r2, =0x04000000
-    ldr r1, =0x2100          @ mode0 + BG0 + WIN0
+    ldr r1, =0x6100          @ mode0+BG0+WIN0+WIN1
     strh r1, [r2]
 forever:
     b forever
